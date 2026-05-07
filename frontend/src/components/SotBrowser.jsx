@@ -215,6 +215,7 @@ function EntryCard({ entry, expanded, onToggle }) {
               ))}
             </Section>
           )}
+          {entry.raw_text && <RawLessonSection rawText={entry.raw_text} />}
           <div
             style={{
               marginTop: 12,
@@ -225,6 +226,56 @@ function EntryCard({ entry, expanded, onToggle }) {
             event_id: {entry.event_id} · score: {entry.validation_score}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function RawLessonSection({ rawText }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "rgba(255,255,255,0.5)",
+          cursor: "pointer",
+          fontSize: 11,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          padding: 0,
+          fontFamily: "inherit",
+        }}
+      >
+        {open ? "▾" : "▸"} Original lesson
+      </button>
+      {open && (
+        <pre
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            marginTop: 8,
+            padding: 12,
+            background: "rgba(0,0,0,0.4)",
+            borderRadius: 6,
+            color: "rgba(255,255,255,0.78)",
+            fontSize: 13,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            fontFamily: "inherit",
+            maxHeight: 300,
+            overflowY: "auto",
+            margin: "8px 0 0 0",
+            cursor: "text",
+          }}
+        >
+          {rawText}
+        </pre>
       )}
     </div>
   );

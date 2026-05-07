@@ -38,6 +38,10 @@ def write_to_memory(event, summary_data, validation_data):
         "week": event.payload.get("week"),
         "lesson": event.payload.get("lesson"),
 
+        # Original source — kept so future agents can re-summarize, fact-check,
+        # or otherwise reason against the source, not just the derived summary.
+        "raw_text": event.payload.get("raw_text"),
+
         "summary": summary_data.get("summary"),
         "key_concepts": summary_data.get("key_concepts"),
         "definitions": summary_data.get("definitions"),
