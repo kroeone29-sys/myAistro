@@ -154,7 +154,7 @@ export default function DataFlowCanvas({ task, activeStep }) {
         }
         if (step.step === "memory_write" && step.status) {
           ctx.fillStyle =
-            step.status === "written"
+            step.status === "written" || step.status === "replaced"
               ? "#22c55e"
               : "rgba(255,255,255,0.5)";
           ctx.font = "11px system-ui";

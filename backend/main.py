@@ -9,6 +9,9 @@ This file defines:
 This is the READ side of the system (uses memory).
 """
 
+import json
+import os
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 from datetime import datetime
@@ -26,6 +29,9 @@ from core.memory_reader import retrieve_from_memory
 
 # Ingestion router (WRITE side)
 from api.ingestion_controller import router as ingestion_router
+
+
+SOT_FILE = "memory_store.json"
 
 
 # =========================================================
@@ -68,6 +74,21 @@ def root():
         "status": "myAIstro backend running",
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# =========================================================
+# SOT BROWSE ENDPOINT
+# Returns the full Source of Truth so the UI can list / filter.
+# =========================================================
+@app.get("/api/sot")
+def list_sot():
+    if not os.path.exists(SOT_FILE):
+        return []
+    with open(SOT_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
 
 
 # =========================================================

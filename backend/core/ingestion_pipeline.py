@@ -144,7 +144,7 @@ def run_ingestion_pipeline(event):
 
         timeline.append({
             "step": "memory_write",
-            "status": "written",
+            "status": result.get("status", "written"),
             "details": result
         })
 

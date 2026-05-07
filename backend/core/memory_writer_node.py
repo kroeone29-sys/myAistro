@@ -1,14 +1,12 @@
 """
-Memory Writer Node (SOT v1)
+Memory Writer Node
 
-Purpose:
-- Persist validated knowledge into storage (JSON file)
-- Acts as first "memory layer" of system
+Persists validated knowledge into the SOT store (JSON file).
 
-Design:
-- Append-only (no overwrites)
-- Human-readable
-- Traceable via event_id + trace_id
+Behavior:
+- Validation gate: only writes if validation == PASS.
+- Upsert by (course, week, lesson) — re-ingesting the same lesson
+  replaces the previous entry instead of appending a duplicate.
 """
 
 import json
@@ -16,32 +14,23 @@ import os
 from datetime import datetime
 
 
-# where memory is stored
 MEMORY_FILE = "memory_store.json"
 
 
 def write_to_memory(event, summary_data, validation_data):
     """
-    Writes validated summary into memory store.
+    Writes validated summary into the SOT store.
 
-    Parameters:
-    - event: original ingestion event
-    - summary_data: output from summarization agent
-    - validation_data: output from validation agent
+    Returns:
+        {"status": "written" | "replaced" | "skipped", ...}
     """
 
-    # -----------------------------------
-    # ONLY WRITE IF VALID
-    # -----------------------------------
     if validation_data.get("validation") != "PASS":
         return {
             "status": "skipped",
-            "reason": "validation_failed"
+            "reason": "validation_failed",
         }
 
-    # -----------------------------------
-    # BUILD MEMORY ENTRY
-    # -----------------------------------
     entry = {
         "event_id": event.event_id,
         "trace_id": event.context.get("trace_id"),
@@ -55,33 +44,46 @@ def write_to_memory(event, summary_data, validation_data):
         "code_blocks": summary_data.get("code_blocks"),
 
         "validation_score": validation_data.get("score"),
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.utcnow().isoformat(),
     }
 
-    # -----------------------------------
-    # LOAD EXISTING MEMORY
-    # -----------------------------------
-    if os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, "r") as f:
-            try:
-                data = json.load(f)
-            except:
-                data = []
+    data = _load_store()
+
+    key = _key_of(entry)
+    replaced_index = next(
+        (i for i, e in enumerate(data) if _key_of(e) == key),
+        None,
+    )
+
+    if replaced_index is not None:
+        data[replaced_index] = entry
+        action = "replaced"
     else:
-        data = []
+        data.append(entry)
+        action = "written"
 
-    # -----------------------------------
-    # APPEND NEW ENTRY
-    # -----------------------------------
-    data.append(entry)
-
-    # -----------------------------------
-    # SAVE BACK TO FILE
-    # -----------------------------------
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
     return {
-        "status": "written",
-        "entries": len(data)
+        "status": action,
+        "entries": len(data),
     }
+
+
+def _load_store():
+    if not os.path.exists(MEMORY_FILE):
+        return []
+    with open(MEMORY_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+
+def _key_of(entry):
+    return (
+        entry.get("course"),
+        entry.get("week"),
+        entry.get("lesson"),
+    )

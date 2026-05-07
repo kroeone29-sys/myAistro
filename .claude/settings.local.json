@@ -16,7 +16,13 @@
       "Bash(curl -s http://localhost:5173/)",
       "Bash(curl -sf http://127.0.0.1:8000/ -o /dev/null)",
       "Bash(curl -sf http://localhost:5173/ -o /dev/null)",
-      "Bash(curl -s -X POST http://127.0.0.1:8000/api/ingest -H \"Content-Type: application/json\" -d '{\"course\":\"VERIFY\",\"week\":\"0\",\"lesson\":\"PostFixSmoke\",\"raw_text\":\"Python is a high-level interpreted programming language used for web development, data science, and AI.\"}')"
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/ingest -H \"Content-Type: application/json\" -d '{\"course\":\"VERIFY\",\"week\":\"0\",\"lesson\":\"PostFixSmoke\",\"raw_text\":\"Python is a high-level interpreted programming language used for web development, data science, and AI.\"}')",
+      "Bash(curl -s http://127.0.0.1:8000/api/sot)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/api/ingest -H \"Content-Type: application/json\" -d '{\"course\":\"BE101\",\"week\":\"3\",\"lesson\":\"The DOM, your page as a live tree\",\"raw_text\":\"The DOM is a live tree of objects in the browser, built from HTML. Edits in DevTools change the DOM but not the original HTML file.\"}')",
+      "Bash(python3 -c \"import sys,json; t=json.load\\(sys.stdin\\); print\\(json.dumps\\(t['timeline'][-1], indent=2\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} entries; lessons: {[e[\\\\\"lesson\\\\\"] for e in d]}'\\)\")",
+      "Bash(git restore *)",
+      "Bash(git checkout *)"
     ]
   }
 }
