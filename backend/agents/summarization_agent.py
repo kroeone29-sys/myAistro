@@ -64,14 +64,22 @@ LESSON INPUT:
     # -----------------------------
     # CALL LLM
     # -----------------------------
+    # format="json" forces Ollama into JSON mode (no truncated braces).
+    # num_predict lifts the output token cap so long lessons fit.
+    # low temperature keeps output deterministic per the contract.
     response = ollama.chat(
         model=MODEL,
+        format="json",
         messages=[
             {
                 "role": "user",
                 "content": prompt
             }
-        ]
+        ],
+        options={
+            "num_predict": 1024,
+            "temperature": 0.1,
+        }
     )
 
     output_text = response["message"]["content"]
