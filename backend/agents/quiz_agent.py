@@ -62,7 +62,7 @@ Definitions: {' / '.join(definitions) if definitions else "(none)"}
         model=QUIZ_GENERATE,
         format="json",
         messages=[{"role": "user", "content": prompt}],
-        options={"num_predict": 256, "temperature": 0.6},
+        options={"num_ctx": 8192, "num_predict": 256, "temperature": 0.6},
     )
 
     try:
@@ -119,7 +119,7 @@ USER'S ANSWER: {user_answer}
         model=GRADE,
         format="json",
         messages=[{"role": "user", "content": prompt}],
-        options={"num_predict": 512, "temperature": 0.2},
+        options={"num_ctx": 8192, "num_predict": 512, "temperature": 0.2},
     )
 
     try:

@@ -96,6 +96,10 @@ LESSON INPUT:
             }
         ],
         options={
+            # Ollama's default num_ctx (often 2048) silently truncates long
+            # lessons. 8192 fits ~6.5k tokens of input alongside the 1536-token
+            # output budget, which covers every lesson we've seen so far.
+            "num_ctx": 8192,
             "num_predict": 1536,
             "temperature": 0.1,
         }
