@@ -1,9 +1,13 @@
 from datetime import datetime
 
 
-# Source-text length above which we expect the LLM to extract key_concepts.
-# Below this, a missing key_concepts list is acceptable.
+# Source-text length above which we expect the LLM to extract key_concepts
+# and produce a substantive summary. Below this, looser rules apply.
 NONTRIVIAL_SOURCE_CHARS = 200
+
+# Minimum character count for a summary on non-trivial source. Catches the
+# regression where the LLM emits the lesson title alone as a "summary".
+MIN_SUMMARY_CHARS = 60
 
 
 def validate_summary(context: dict):
@@ -68,6 +72,19 @@ def validate_summary(context: dict):
     # -------------------------------------------------
     if len(source_text) >= NONTRIVIAL_SOURCE_CHARS and not key_concepts:
         errors.append("Non-trivial lesson produced no key_concepts")
+
+    # -------------------------------------------------
+    # INTEGRITY: non-trivial lessons must yield a substantive summary
+    # -------------------------------------------------
+    summary_len = len(summary_text.strip())
+    if (
+        len(source_text) >= NONTRIVIAL_SOURCE_CHARS
+        and summary_len < MIN_SUMMARY_CHARS
+    ):
+        errors.append(
+            f"Summary is too short to be substantive ({summary_len} chars; "
+            f"expected at least {MIN_SUMMARY_CHARS})"
+        )
 
     # -------------------------------------------------
     # GROUNDING (weak heuristic)

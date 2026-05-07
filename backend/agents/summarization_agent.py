@@ -48,6 +48,20 @@ CRITICAL RULES:
 - You MUST return ONLY valid JSON
 - No markdown, no explanation, no extra text
 
+SUMMARY RULES:
+- The summary must be 2-4 sentences of substantive prose that explain the lesson's main ideas in plain English.
+- Do NOT just restate the lesson title or use the title as the summary.
+- A reader should understand the key takeaways from the summary alone.
+
+KEY_CONCEPTS RULES:
+- Each entry is a short noun phrase (1-5 words) naming an idea covered in the lesson.
+
+DEFINITION RULES:
+- Each entry is a complete "term — explanation" pair. The term names something the lesson defines; the explanation states what it is or does.
+- Acceptable formats: "term — explanation", "term: explanation", or a single sentence that contains both.
+- Do NOT include orphan terms with no explanation. WRONG: "src attribute in <img>". RIGHT: "src attribute in <img> — specifies the URL of the image to display".
+- If the lesson does not formally define anything, return an empty array.
+
 CODE BLOCK RULES (STRICT):
 - Copy code from the lesson VERBATIM, including indentation, line breaks, and all whitespace. Use literal \\n inside JSON strings to preserve newlines.
 - Each `code_blocks` entry must be ONE complete code example with all of its lines together. Do NOT split a multi-line example across separate array entries (e.g. an HTML document is ONE entry, not one entry per tag).
@@ -82,7 +96,7 @@ LESSON INPUT:
             }
         ],
         options={
-            "num_predict": 1024,
+            "num_predict": 1536,
             "temperature": 0.1,
         }
     )
