@@ -115,6 +115,13 @@ export default function SotBrowser() {
                 [entry.event_id]: !prev[entry.event_id],
               }))
             }
+            onUpdate={(updated) =>
+              setEntries((prev) =>
+                prev.map((e) =>
+                  e.event_id === updated.event_id ? updated : e,
+                ),
+              )
+            }
           />
         ))}
       </div>
@@ -122,7 +129,35 @@ export default function SotBrowser() {
   );
 }
 
-function EntryCard({ entry, expanded, onToggle }) {
+function EntryCard({ entry, expanded, onToggle, onUpdate }) {
+  const [resumState, setResumState] = useState({ busy: false, error: null });
+
+  async function resummarize(e) {
+    e.stopPropagation();
+    if (resumState.busy) return;
+    setResumState({ busy: true, error: null });
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/sot/resummarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: entry.event_id }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const msg =
+          typeof errBody?.detail === "string"
+            ? errBody.detail
+            : errBody?.detail?.message ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      const updated = await res.json();
+      onUpdate(updated);
+      setResumState({ busy: false, error: null });
+    } catch (err) {
+      setResumState({ busy: false, error: err.message ?? String(err) });
+    }
+  }
+
   return (
     <div
       onClick={onToggle}
@@ -219,12 +254,64 @@ function EntryCard({ entry, expanded, onToggle }) {
           <div
             style={{
               marginTop: 12,
-              fontSize: 11,
-              color: "rgba(255,255,255,0.4)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
             }}
           >
-            event_id: {entry.event_id} · score: {entry.validation_score}
+            {entry.raw_text ? (
+              <button
+                type="button"
+                onClick={resummarize}
+                disabled={resumState.busy}
+                style={{
+                  padding: "6px 10px",
+                  background: resumState.busy ? "rgba(59,130,246,0.4)" : "rgba(59,130,246,0.18)",
+                  border: "1px solid rgba(59,130,246,0.45)",
+                  borderRadius: 6,
+                  color: "white",
+                  cursor: resumState.busy ? "wait" : "pointer",
+                  fontSize: 12,
+                  fontFamily: "inherit",
+                }}
+              >
+                {resumState.busy ? "Re-summarizing…" : "Re-summarize"}
+              </button>
+            ) : (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.35)",
+                  fontStyle: "italic",
+                }}
+              >
+                No raw_text — re-ingest to enable re-summarization
+              </span>
+            )}
+            <div
+              style={{
+                fontSize: 11,
+                color: "rgba(255,255,255,0.4)",
+              }}
+            >
+              event_id: {entry.event_id} · score: {entry.validation_score}
+              {entry.resummarized_at && (
+                <> · re-summarized {entry.resummarized_at.slice(0, 10)}</>
+              )}
+            </div>
           </div>
+          {resumState.error && (
+            <div
+              style={{
+                marginTop: 8,
+                color: "#ef4444",
+                fontSize: 12,
+              }}
+            >
+              {resumState.error}
+            </div>
+          )}
         </div>
       )}
     </div>

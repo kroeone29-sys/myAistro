@@ -48,6 +48,12 @@ CRITICAL RULES:
 - You MUST return ONLY valid JSON
 - No markdown, no explanation, no extra text
 
+CODE BLOCK RULES (STRICT):
+- Copy code from the lesson VERBATIM, including indentation, line breaks, and all whitespace. Use literal \\n inside JSON strings to preserve newlines.
+- Each `code_blocks` entry must be ONE complete code example with all of its lines together. Do NOT split a multi-line example across separate array entries (e.g. an HTML document is ONE entry, not one entry per tag).
+- Only include actual code samples (HTML, JSX, JS, CSS, shell commands, etc.). Do NOT include URLs, prose terms, or single inline tokens as code blocks.
+- If the lesson has no code samples, return an empty array.
+
 OUTPUT FORMAT (must match exactly):
 {{
   "summary": "string",

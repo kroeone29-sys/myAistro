@@ -12,7 +12,7 @@ This is the READ side of the system (uses memory).
 import json
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +35,21 @@ from api.quiz_controller import router as quiz_router
 
 
 SOT_FILE = "memory_store.json"
+
+
+def _load_sot():
+    if not os.path.exists(SOT_FILE):
+        return []
+    with open(SOT_FILE, "r") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+
+def _save_sot(data):
+    with open(SOT_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 # =========================================================
@@ -86,13 +101,64 @@ def root():
 # =========================================================
 @app.get("/api/sot")
 def list_sot():
-    if not os.path.exists(SOT_FILE):
-        return []
-    with open(SOT_FILE, "r") as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return []
+    return _load_sot()
+
+
+# =========================================================
+# SOT RE-SUMMARIZE ENDPOINT
+# Re-runs summarization on an entry's stored raw_text and replaces the
+# derived fields in place. Identity (event_id, trace_id, course/week/
+# lesson, raw_text, created_at) is preserved.
+# =========================================================
+class ResummarizeRequest(BaseModel):
+    event_id: str
+
+
+@app.post("/api/sot/resummarize")
+def resummarize(req: ResummarizeRequest):
+    data = _load_sot()
+    idx = next(
+        (i for i, e in enumerate(data) if e.get("event_id") == req.event_id),
+        None,
+    )
+    if idx is None:
+        raise HTTPException(status_code=404, detail="SOT entry not found")
+
+    entry = data[idx]
+    raw_text = entry.get("raw_text") or ""
+    if not raw_text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Entry has no raw_text; re-ingest the lesson to enable re-summarization.",
+        )
+
+    new_summary = summarize_lesson(raw_text)
+    validation = validate_summary({
+        "retrieval": {"source_text": raw_text},
+        "summarization": new_summary,
+    })
+
+    if validation.get("validation") != "PASS":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Re-summarization failed validation",
+                "errors": validation.get("errors", []),
+                "warnings": validation.get("warnings", []),
+            },
+        )
+
+    entry["summary"] = new_summary.get("summary")
+    entry["key_concepts"] = new_summary.get("key_concepts")
+    entry["definitions"] = new_summary.get("definitions")
+    entry["code_blocks"] = new_summary.get("code_blocks")
+    entry["validation_score"] = validation.get("score")
+    entry["resummarized_at"] = datetime.utcnow().isoformat()
+
+    data[idx] = entry
+    _save_sot(data)
+
+    return entry
 
 
 # =========================================================
