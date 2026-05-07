@@ -58,6 +58,14 @@ export default function IngestPanel() {
 
       const data = await res.json();
       setTask(data);
+
+      // Clear lesson + text only when the entry actually persisted, so a
+      // validation FAIL leaves the input intact for the user to fix.
+      const memoryStep = data.timeline?.find((s) => s.step === "memory_write");
+      if (memoryStep?.status === "written" || memoryStep?.status === "replaced") {
+        setLesson("");
+        setInputText("");
+      }
     } catch (e) {
       console.error(e);
       setError(e.message ?? String(e));
