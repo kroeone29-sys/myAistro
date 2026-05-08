@@ -12,6 +12,9 @@ dist/
 .vscode/
 .idea/
 
+# Claude Code internal
+.claude/worktrees/
+
 # Secrets
 .env
 .env.local
