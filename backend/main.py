@@ -147,6 +147,23 @@ def resummarize(req: ResummarizeRequest):
     })
 
     if validation.get("validation") != "PASS":
+        # Mirror the ingest-side validation FAIL log so resummarize
+        # rejections are debuggable from the uvicorn output.
+        import sys as _sys
+        print(
+            "[resummarize FAIL] "
+            f"course={entry.get('course')!r} "
+            f"week={entry.get('week')!r} "
+            f"lesson={entry.get('lesson')!r}\n"
+            f"  errors:   {validation.get('errors', [])}\n"
+            f"  warnings: {validation.get('warnings', [])}\n"
+            f"  summary preview ({len(new_summary.get('summary') or '')} chars): "
+            f"{(new_summary.get('summary') or '')[:200]!r}\n"
+            f"  key_concepts: {new_summary.get('key_concepts')}\n"
+            f"  source_text length: {len(raw_text)} chars",
+            file=_sys.stderr,
+            flush=True,
+        )
         raise HTTPException(
             status_code=422,
             detail={

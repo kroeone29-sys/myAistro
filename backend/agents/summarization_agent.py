@@ -37,48 +37,23 @@ def summarize_lesson(raw_text: str) -> dict:
         }
 
     # -----------------------------
-    # STRICT OUTPUT CONTRACT PROMPT
+    # OUTPUT CONTRACT PROMPT
     # -----------------------------
-    # IMPORTANT: We force JSON output so downstream pipeline can rely on structure.
-    prompt = f"""
-You are a deterministic summarization engine inside a learning system.
+    # Tight on purpose. An earlier, much longer prompt loaded llama3:8b
+    # with so many instruction sections that it produced malformed output
+    # on long lessons (observed reliably on the "HTML forms and user
+    # input" lesson). Shorter prompt + JSON repair on the response
+    # produces complete output for the same lessons.
+    prompt = f"""Return a single JSON object summarizing the lesson below. The object MUST have exactly these keys:
 
-CRITICAL RULES:
-- You are NOT a chatbot
-- You are NOT allowed to ask questions
-- You MUST NOT add commentary
-- You MUST return ONLY valid JSON
-- No markdown, no explanation, no extra text
+- "summary": 2-4 sentences of plain-English prose explaining the lesson's main ideas. Do NOT just restate the title.
+- "key_concepts": array of short noun phrases (1-5 words each) for the ideas the lesson covers.
+- "definitions": array of "term — explanation" pairs for terms the lesson formally defines. Each entry must contain BOTH the term and its explanation. Empty array if the lesson defines nothing.
+- "code_blocks": array of complete code examples copied VERBATIM from the lesson, preserving line breaks and indentation. Each entry is one full example (an HTML document is one entry, not one entry per tag). Empty array if the lesson has no code.
 
-SUMMARY RULES:
-- The summary must be 2-4 sentences of substantive prose that explain the lesson's main ideas in plain English.
-- Do NOT just restate the lesson title or use the title as the summary.
-- A reader should understand the key takeaways from the summary alone.
+Return ONLY the JSON object. No markdown fences, no commentary, no prose around it.
 
-KEY_CONCEPTS RULES:
-- Each entry is a short noun phrase (1-5 words) naming an idea covered in the lesson.
-
-DEFINITION RULES:
-- Each entry is a complete "term — explanation" pair. The term names something the lesson defines; the explanation states what it is or does.
-- Acceptable formats: "term — explanation", "term: explanation", or a single sentence that contains both.
-- Do NOT include orphan terms with no explanation. WRONG: "src attribute in <img>". RIGHT: "src attribute in <img> — specifies the URL of the image to display".
-- If the lesson does not formally define anything, return an empty array.
-
-CODE BLOCK RULES (STRICT):
-- Copy code from the lesson VERBATIM, including indentation, line breaks, and all whitespace. Use literal \\n inside JSON strings to preserve newlines.
-- Each `code_blocks` entry must be ONE complete code example with all of its lines together. Do NOT split a multi-line example across separate array entries (e.g. an HTML document is ONE entry, not one entry per tag).
-- Only include actual code samples (HTML, JSX, JS, CSS, shell commands, etc.). Do NOT include URLs, prose terms, or single inline tokens as code blocks.
-- If the lesson has no code samples, return an empty array.
-
-OUTPUT FORMAT (must match exactly):
-{{
-  "summary": "string",
-  "key_concepts": ["string"],
-  "definitions": ["string"],
-  "code_blocks": ["string"]
-}}
-
-LESSON INPUT:
+LESSON:
 {raw_text}
 """
 
