@@ -122,7 +122,7 @@ LESSON:
     # ["string"]. Coerce every field to its expected shape before
     # downstream code (validation, memory writer) touches it.
     return {
-        "summary": _ensure_str(parsed.get("summary")),
+        "summary": _unwrap_nested_summary(_ensure_str(parsed.get("summary"))),
         "key_concepts": _ensure_list_of_str(parsed.get("key_concepts")),
         "definitions": _ensure_list_of_str(parsed.get("definitions")),
         "code_blocks": [
@@ -131,6 +131,30 @@ LESSON:
         ],
         "generated_at": datetime.utcnow().isoformat(),
     }
+
+
+def _unwrap_nested_summary(text: str, depth: int = 0) -> str:
+    """
+    Sometimes the model emits a `summary` value that itself contains
+    another "Here is the JSON…\n\n{ ...JSON... }" wrapper, recursively.
+    The outer JSON parses, key_concepts/definitions/code_blocks come
+    out fine, but the summary string is full of JSON markup. Validation
+    correctly rejects it.
+
+    If the summary text looks like nested JSON, peel it open and use
+    the *inner* summary instead. Bounded depth so we can't loop.
+    """
+    if not text or depth > 3:
+        return text
+    if '"summary"' not in text and "'summary'" not in text:
+        return text
+
+    nested = _parse_or_repair(text)
+    if isinstance(nested, dict):
+        inner = nested.get("summary")
+        if isinstance(inner, str) and inner.strip() and inner != text:
+            return _unwrap_nested_summary(inner, depth + 1)
+    return text
 
 
 def _summarize_chunked(raw_text: str) -> dict:
