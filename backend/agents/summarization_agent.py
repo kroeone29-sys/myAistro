@@ -18,6 +18,13 @@ from core.code_format import format_code_block
 from core.model_router import SUMMARIZE as MODEL
 
 
+# Lesson length above which a single Ollama call won't fit in the model's
+# 8k context window once you include the prompt + output budget. We chunk
+# anything larger and merge the partial summaries.
+CHUNK_THRESHOLD_CHARS = 7000
+CHUNK_TARGET_CHARS = 6000
+
+
 def summarize_lesson(raw_text: str) -> dict:
     """
     Takes raw lesson text and returns structured summary output.
@@ -35,6 +42,14 @@ def summarize_lesson(raw_text: str) -> dict:
             "code_blocks": [],
             "generated_at": datetime.utcnow().isoformat()
         }
+
+    # Long lessons get chunked so each pass fits in the model's context.
+    if len(raw_text) > CHUNK_THRESHOLD_CHARS:
+        return _summarize_chunked(raw_text)
+    return _summarize_one_shot(raw_text)
+
+
+def _summarize_one_shot(raw_text: str) -> dict:
 
     # -----------------------------
     # OUTPUT CONTRACT PROMPT
@@ -116,6 +131,130 @@ LESSON:
         ],
         "generated_at": datetime.utcnow().isoformat(),
     }
+
+
+def _summarize_chunked(raw_text: str) -> dict:
+    """
+    Summarize a lesson too long for the model's context window by
+    splitting it into paragraph-aligned chunks, summarizing each, and
+    merging the partial results.
+
+    Merge strategy:
+      - summary: concatenate the partial prose with double newlines
+      - key_concepts: union, deduped case-insensitively, order-preserving
+      - definitions: union, deduped by the term before "—" or ":"
+      - code_blocks: union, dropping exact duplicates
+    """
+    chunks = _split_into_chunks(raw_text, CHUNK_TARGET_CHARS)
+    partials = [_summarize_one_shot(c) for c in chunks]
+
+    summaries = [p.get("summary", "").strip() for p in partials]
+    summary = "\n\n".join(s for s in summaries if s)
+
+    key_concepts = _dedup_preserve(
+        (k for p in partials for k in (p.get("key_concepts") or [])),
+        key=lambda k: k.strip().lower(),
+    )
+
+    def _def_key(d):
+        d = d.strip()
+        for sep in ("—", ":", "-"):
+            if sep in d:
+                return d.split(sep, 1)[0].strip().lower()
+        return d[:40].lower()
+
+    definitions = _dedup_preserve(
+        (d for p in partials for d in (p.get("definitions") or [])),
+        key=_def_key,
+    )
+
+    code_blocks = _dedup_preserve(
+        (c for p in partials for c in (p.get("code_blocks") or []) if c and c.strip()),
+        key=lambda c: c.strip(),
+    )
+
+    return {
+        "summary": summary,
+        "key_concepts": key_concepts,
+        "definitions": definitions,
+        "code_blocks": code_blocks,
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def _split_into_chunks(text: str, target_chars: int) -> list:
+    """
+    Paragraph-aligned splitter: walk paragraphs and start a new chunk
+    whenever adding the next one would push the current chunk over
+    target_chars. Falls back to splitting on single newlines, then on
+    raw character offsets, if a single paragraph is itself larger than
+    the target.
+    """
+    paragraphs = text.split("\n\n")
+
+    chunks: list = []
+    current: list = []
+    current_len = 0
+
+    def push():
+        nonlocal current, current_len
+        if current:
+            chunks.append("\n\n".join(current))
+            current = []
+            current_len = 0
+
+    for para in paragraphs:
+        if len(para) > target_chars:
+            push()
+            for sub in _hard_split(para, target_chars):
+                chunks.append(sub)
+            continue
+        if current_len + len(para) + 2 > target_chars and current:
+            push()
+        current.append(para)
+        current_len += len(para) + 2
+
+    push()
+    return [c for c in chunks if c.strip()]
+
+
+def _hard_split(text: str, target_chars: int) -> list:
+    """Split a single oversize paragraph by line, then by raw offset."""
+    lines = text.split("\n")
+    chunks: list = []
+    cur: list = []
+    cur_len = 0
+    for line in lines:
+        if len(line) > target_chars:
+            if cur:
+                chunks.append("\n".join(cur))
+                cur = []
+                cur_len = 0
+            for i in range(0, len(line), target_chars):
+                chunks.append(line[i:i + target_chars])
+            continue
+        if cur_len + len(line) + 1 > target_chars and cur:
+            chunks.append("\n".join(cur))
+            cur = []
+            cur_len = 0
+        cur.append(line)
+        cur_len += len(line) + 1
+    if cur:
+        chunks.append("\n".join(cur))
+    return chunks
+
+
+def _dedup_preserve(items, key=None):
+    """First-seen-wins dedup that preserves order."""
+    seen = set()
+    out = []
+    for item in items:
+        k = key(item) if key else item
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(item)
+    return out
 
 
 def _strip_outer_wrappers(text: str) -> str:
