@@ -14,9 +14,12 @@ the first call after switching roles can be slow.
 """
 
 # -------- Generator roles --------
-SUMMARIZE = "llama3:8b"           # structured extraction of lesson content
+SUMMARIZE = "llama3:8b"            # structured extraction of lesson content
 QUIZ_GENERATE = "llama3.2:latest"  # recall-question phrasing from SOT entries
-ADVISE = "llama3:8b"               # study advisor — long-form prose grounded in SOT
+# llama3.2 has a 128K context window, which the advisor needs for
+# course-wide queries ("study guide for BE101") that select 20+ SOT
+# entries — llama3:8b's 8K cap was squeezing the output too hard.
+ADVISE = "llama3.2:latest"
 
 # -------- Judge role --------
 GRADE = "mistral:latest"           # scores user answers; separate from generators

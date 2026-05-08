@@ -31,7 +31,12 @@ def stream_chat(query: str, entries: List[Dict]) -> Iterable[str]:
         model=ADVISE,
         messages=[{"role": "user", "content": prompt}],
         options={
-            "num_ctx": 8192,
+            # llama3.2 supports up to 128K context. 32K is plenty of
+            # headroom for course-wide queries (20+ SOT entries) plus a
+            # long study-guide response, without paying for cache the
+            # model rarely uses.
+            "num_ctx": 32768,
+            "num_predict": 4096,
             "temperature": 0.3,
         },
         stream=True,
