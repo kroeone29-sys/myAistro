@@ -49,9 +49,14 @@ def summarize_lesson(raw_text: str) -> dict:
 - "summary": 2-4 sentences of plain-English prose explaining the lesson's main ideas. Do NOT just restate the title.
 - "key_concepts": array of short noun phrases (1-5 words each) for the ideas the lesson covers.
 - "definitions": array of "term — explanation" pairs for terms the lesson formally defines. Each entry must contain BOTH the term and its explanation. Empty array if the lesson defines nothing.
-- "code_blocks": array of complete code examples copied VERBATIM from the lesson, preserving line breaks and indentation. Each entry is one full example (an HTML document is one entry, not one entry per tag). Empty array if the lesson has no code.
+- "code_blocks": array of complete code examples copied VERBATIM from the lesson, preserving line breaks and indentation. Each entry is one full example (an HTML document is one entry, not one entry per tag). Empty array if the lesson has no code. Each entry MUST be a normal JSON string in double quotes with `\\n` for newlines — do NOT use ```triple-backtick fences``` inside the array.
 
-Return ONLY the JSON object. No markdown fences, no commentary, no prose around it.
+OUTPUT RULES:
+- The very first character of your response MUST be `{{`.
+- The very last character of your response MUST be `}}`.
+- Do NOT wrap the output in ```json … ``` markdown fences.
+- Do NOT prefix with "Here is the JSON" or any other commentary.
+- No text before the opening brace, no text after the closing brace.
 
 LESSON:
 {raw_text}
@@ -118,6 +123,41 @@ LESSON:
     }
 
 
+def _convert_markdown_fences_to_json_strings(text: str) -> str:
+    """
+    Replace ```...``` markdown fences with proper JSON strings.
+
+    llama3:8b reflexively wraps multi-line code in markdown fences even
+    when explicitly told not to (the fence markers are essentially baked
+    into how it represents code). Inside a JSON array those triple
+    backticks are syntax errors that the bracket-repair can't fix —
+    the structure is wrong, not just truncated.
+
+    The fence contents become JSON strings with newlines escaped, quotes
+    escaped, and backslashes escaped. An optional language tag on the
+    opening fence (```html, ```js, etc.) is dropped if present.
+    """
+
+    def replace(match: "re.Match") -> str:
+        content = match.group(1)
+        # Drop a leading language identifier on its own line.
+        first_line, _, rest = content.partition("\n")
+        if first_line.strip() and not any(c in first_line for c in "<{(/"):
+            stripped = first_line.strip()
+            if re.fullmatch(r"[A-Za-z][A-Za-z0-9+\-]*", stripped):
+                content = rest
+        escaped = (
+            content.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        )
+        return '"' + escaped + '"'
+
+    return re.sub(r"```(.*?)```", replace, text, flags=re.DOTALL)
+
+
 def _parse_or_repair(text: str):
     """
     Parse LLM JSON output, repairing truncated responses where possible.
@@ -141,12 +181,35 @@ def _parse_or_repair(text: str):
     except json.JSONDecodeError:
         pass
 
+    # Convert ```code fences``` into JSON strings — the model often uses
+    # markdown for code_blocks even when told not to, which breaks JSON
+    # parsing because raw ``` is not valid inside a JSON array.
+    fenced = _convert_markdown_fences_to_json_strings(text)
+    if fenced != text:
+        try:
+            return json.loads(fenced)
+        except json.JSONDecodeError:
+            text = fenced  # keep the cleaned version for the rest
+
     # Strip anything before the first '{' — sometimes the model prefixes
-    # output with a stray newline or commentary.
+    # output with "Here is the JSON…" prose or a markdown ```json fence.
     start = text.find("{")
     if start < 0:
         return None
     body = text[start:]
+
+    # Strip anything after the JSON's closing brace — handles trailing
+    # markdown fences (```) or postscript commentary. Try the last } and
+    # walk back through earlier } candidates if needed.
+    last_close = body.rfind("}")
+    while last_close > 0:
+        try:
+            return json.loads(body[: last_close + 1])
+        except json.JSONDecodeError:
+            last_close = body.rfind("}", 0, last_close)
+
+    # No valid full JSON found by trimming — fall through to the repair
+    # path that scans bracket / string state and synthesizes closers.
 
     # Scan to find string + bracket state at the end of the response.
     in_string = False
