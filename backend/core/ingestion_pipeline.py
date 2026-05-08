@@ -17,6 +17,8 @@ Pipeline contract (unchanged):
 Memory write is gated on validation == PASS.
 """
 
+import sys
+
 from agents.summarization_agent import summarize_lesson
 from agents.validation_agent import validate_summary
 from core.memory_writer_node import write_to_memory
@@ -59,6 +61,27 @@ def stream_ingestion_pipeline(event):
     yield {"type": "step_start", "step": "validation"}
     validation_context = {"retrieval": retrieval, "summarization": summarization}
     validation = validate_summary(validation_context)
+
+    # Log validation FAILs to stderr so we can debug rejected ingests
+    # (the streaming response carries the detail to the UI, but it's
+    # gone once the user navigates away).
+    if validation.get("validation") != "PASS":
+        payload = event.payload
+        print(
+            "[validation FAIL] "
+            f"course={payload.get('course')!r} "
+            f"week={payload.get('week')!r} "
+            f"lesson={payload.get('lesson')!r}\n"
+            f"  errors:   {validation.get('errors', [])}\n"
+            f"  warnings: {validation.get('warnings', [])}\n"
+            f"  summary preview ({len(summarization.get('summary') or '')} chars): "
+            f"{(summarization.get('summary') or '')[:200]!r}\n"
+            f"  key_concepts: {summarization.get('key_concepts')}\n"
+            f"  source_text length: {len(retrieval.get('source_text') or '')} chars",
+            file=sys.stderr,
+            flush=True,
+        )
+
     yield {
         "type": "step_complete",
         "step": "validation",
