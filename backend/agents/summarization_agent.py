@@ -128,16 +128,82 @@ LESSON:
     # code_blocks as [{"language": "...", "code": "..."}] instead of
     # ["string"]. Coerce every field to its expected shape before
     # downstream code (validation, memory writer) touches it.
+    llm_code_blocks = [
+        format_code_block(b)
+        for b in _ensure_list_of_str(parsed.get("code_blocks"))
+    ]
+    # The model often misses code that's embedded inline (no ```fence)
+    # — e.g. a "Html\n\n<!DOCTYPE html>...</html>" block in the lesson.
+    # Deterministic extraction over raw_text catches those, and the
+    # union dedups against what the LLM did pick up.
+    deterministic = _extract_code_from_raw(raw_text)
+    code_blocks = _dedup_preserve(
+        llm_code_blocks + deterministic,
+        key=lambda c: c.strip(),
+    )
+
     return {
         "summary": _unwrap_nested_summary(_ensure_str(parsed.get("summary"))),
         "key_concepts": _ensure_list_of_str(parsed.get("key_concepts")),
         "definitions": _ensure_list_of_str(parsed.get("definitions")),
-        "code_blocks": [
-            format_code_block(b)
-            for b in _ensure_list_of_str(parsed.get("code_blocks"))
-        ],
+        "code_blocks": code_blocks,
         "generated_at": datetime.utcnow().isoformat(),
     }
+
+
+def _extract_code_from_raw(raw_text: str) -> list:
+    """
+    Deterministic code-block extractor over the original lesson text.
+
+    Catches:
+      - Standard markdown fences: ```lang\\n...\\n```
+      - Inline HTML/code blocks introduced by a single-word language
+        label ("Html", "JavaScript") and followed by 3+ contiguous
+        lines starting with `<` (or whitespace-indented continuations).
+      - Bare contiguous HTML blocks (3+ lines starting with `<`)
+        as a last-resort catch.
+
+    The LLM is unreliable for verbatim code extraction; this gives
+    consistent coverage. Returned blocks are passed through the same
+    HTML formatter the LLM-extracted ones go through.
+    """
+    if not raw_text:
+        return []
+
+    blocks: list = []
+
+    # 1. Markdown-fenced blocks
+    for m in re.finditer(r"```\s*(\w+)?\s*\n(.*?)```", raw_text, re.DOTALL):
+        body = m.group(2).strip()
+        if body:
+            blocks.append(body)
+
+    # 2 & 3. Bare contiguous HTML blocks. Walks line-by-line, accumulating
+    # any line whose lstrip() starts with `<`. Keeps blocks of 3+ such
+    # lines as a code block.
+    lines = raw_text.split("\n")
+    current: list = []
+    for line in lines:
+        if line.lstrip().startswith("<"):
+            current.append(line)
+        elif current and not line.strip():
+            # blank line inside a contiguous block — keep accumulating
+            current.append(line)
+        else:
+            if _looks_like_html_block(current):
+                blocks.append("\n".join(current).strip())
+            current = []
+    if _looks_like_html_block(current):
+        blocks.append("\n".join(current).strip())
+
+    return [format_code_block(b) for b in blocks if b]
+
+
+def _looks_like_html_block(lines: list) -> bool:
+    if len(lines) < 3:
+        return False
+    angle_lines = sum(1 for l in lines if l.lstrip().startswith("<"))
+    return angle_lines >= 3
 
 
 def _enrich_from_nested(parsed: dict) -> dict:
