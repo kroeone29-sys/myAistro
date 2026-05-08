@@ -11,6 +11,7 @@ Key rule:
 
 import ollama
 import json
+import re
 from datetime import datetime
 
 from core.code_format import format_code_block
@@ -113,17 +114,15 @@ LESSON INPUT:
     # -----------------------------
     # PARSE + VALIDATE OUTPUT
     # -----------------------------
-    # This enforces structure so downstream nodes stay stable
-    try:
-        parsed = json.loads(output_text)
-
-    except json.JSONDecodeError:
-        # Fallback safety: if model breaks format, we recover gracefully
+    parsed = _parse_or_repair(output_text)
+    if not parsed:
+        # Total failure — preserve the raw output so the user / log can
+        # inspect what the model actually emitted.
         parsed = {
-            "summary": output_text,  # fallback raw capture
+            "summary": output_text,
             "key_concepts": [],
             "definitions": [],
-            "code_blocks": []
+            "code_blocks": [],
         }
 
     # -----------------------------
@@ -143,6 +142,76 @@ LESSON INPUT:
         ],
         "generated_at": datetime.utcnow().isoformat(),
     }
+
+
+def _parse_or_repair(text: str):
+    """
+    Parse LLM JSON output, repairing truncated responses where possible.
+
+    Real-world failure mode: Ollama's format="json" can stop generation
+    mid-string on long inputs (observed with llama3:8b at 8-9k char
+    lessons even with a 3072-token output cap). The model never closed
+    the JSON object, so json.loads fails and the user loses the entry.
+
+    Repair strategy: walk the text, track whether we're inside a string,
+    track bracket nesting, then synthesize the missing closers.
+    """
+    if not text:
+        return None
+
+    text = text.strip()
+
+    # Try direct parse first.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Strip anything before the first '{' — sometimes the model prefixes
+    # output with a stray newline or commentary.
+    start = text.find("{")
+    if start < 0:
+        return None
+    body = text[start:]
+
+    # Scan to find string + bracket state at the end of the response.
+    in_string = False
+    escape_next = False
+    stack = []
+    for ch in body:
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "[{":
+            stack.append(ch)
+        elif ch in "]}":
+            if stack and ((ch == "}" and stack[-1] == "{") or
+                          (ch == "]" and stack[-1] == "[")):
+                stack.pop()
+
+    repaired = body.rstrip()
+    if in_string:
+        repaired += '"'
+    # Drop trailing commas/whitespace immediately before we add closers.
+    repaired = re.sub(r"[,\s]+$", "", repaired)
+    while stack:
+        last = stack.pop()
+        repaired += "}" if last == "{" else "]"
+    # Also drop trailing commas inside nested closers.
+    repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        return None
 
 
 def _ensure_str(value) -> str:
