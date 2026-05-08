@@ -44,19 +44,14 @@ def summarize_lesson(raw_text: str) -> dict:
     # on long lessons (observed reliably on the "HTML forms and user
     # input" lesson). Shorter prompt + JSON repair on the response
     # produces complete output for the same lessons.
-    prompt = f"""Return a single JSON object summarizing the lesson below. The object MUST have exactly these keys:
+    prompt = f"""Return a single JSON object summarizing the lesson below. The object MUST have exactly these keys. Aim to be COMPREHENSIVE — extract everything substantive the lesson teaches, not just the title-level idea.
 
-- "summary": 2-4 sentences of plain-English prose explaining the lesson's main ideas. Do NOT just restate the title.
-- "key_concepts": array of short noun phrases (1-5 words each) for the ideas the lesson covers.
-- "definitions": array of "term — explanation" pairs for terms the lesson formally defines. Each entry must contain BOTH the term and its explanation. Empty array if the lesson defines nothing.
-- "code_blocks": array of complete code examples copied VERBATIM from the lesson, preserving line breaks and indentation. Each entry is one full example (an HTML document is one entry, not one entry per tag). Empty array if the lesson has no code. Each entry MUST be a normal JSON string in double quotes with `\\n` for newlines — do NOT use ```triple-backtick fences``` inside the array.
+- "summary": 4-8 sentences of plain-English prose explaining what the lesson teaches. Cover the main ideas AND the key supporting points (specific tags, attributes, mechanisms, examples). Do NOT just restate the title; do NOT pad with filler.
+- "key_concepts": array of short noun phrases (1-5 words each) for every distinct idea, term, attribute, mechanism, or behavior the lesson covers. Aim for 8-15 entries on a substantive lesson.
+- "definitions": array of STRINGS (not objects). Each string is one "term — explanation" pair, where the term names something the lesson explains (a tag, attribute, mechanism, or concept) and the explanation is what the lesson says it does. Example: "name attribute — becomes the key in the URL's query string when the form is submitted". Empty array only if the lesson truly explains nothing.
+- "code_blocks": array of strings. Each string is one complete code example copied VERBATIM from the lesson, with line breaks preserved as `\\n` escapes inside the JSON string. An HTML document is one entry, not one entry per tag. Do NOT wrap entries in triple-backtick fences. Empty array if the lesson has no code.
 
-OUTPUT RULES:
-- The very first character of your response MUST be `{{`.
-- The very last character of your response MUST be `}}`.
-- Do NOT wrap the output in ```json … ``` markdown fences.
-- Do NOT prefix with "Here is the JSON" or any other commentary.
-- No text before the opening brace, no text after the closing brace.
+Return only the JSON object — no commentary, no markdown fences, no prose before or after.
 
 LESSON:
 {raw_text}
@@ -123,6 +118,50 @@ LESSON:
     }
 
 
+def _strip_outer_wrappers(text: str) -> str:
+    """
+    Peel off prose preambles and an outer markdown fence wrapper.
+
+    Handles, in order:
+      1. Prose before the first ``` (e.g. "Here is the JSON…\n\n```...")
+      2. A leading ```json (or ```html, or just ```) opener
+      3. A trailing ``` closer
+      4. Prose before the first '{' if no fence was present.
+    """
+
+    text = text.strip()
+
+    # Prose before opening fence: cut to the fence.
+    fence_idx = text.find("```")
+    if fence_idx > 0 and "{" not in text[:fence_idx]:
+        text = text[fence_idx:].lstrip()
+
+    # Strip leading ```<lang>\n
+    if text.startswith("```"):
+        rest = text[3:]
+        nl = rest.find("\n")
+        if nl >= 0:
+            head = rest[:nl].strip()
+            if not head or re.fullmatch(r"[A-Za-z][A-Za-z0-9+\-]*", head):
+                text = rest[nl + 1:]
+            else:
+                text = rest
+        else:
+            text = rest
+
+    # Strip trailing ```
+    stripped = text.rstrip()
+    if stripped.endswith("```"):
+        text = stripped[:-3].rstrip()
+
+    # Prose before the JSON object's opening brace: cut to it.
+    brace_idx = text.find("{")
+    if brace_idx > 0:
+        text = text[brace_idx:]
+
+    return text.strip()
+
+
 def _convert_markdown_fences_to_json_strings(text: str) -> str:
     """
     Replace ```...``` markdown fences with proper JSON strings.
@@ -180,6 +219,17 @@ def _parse_or_repair(text: str):
         return json.loads(text)
     except json.JSONDecodeError:
         pass
+
+    # Strip outer wrappers — prose preamble ("Here is the JSON…"),
+    # opening ```json fence, trailing ``` fence — that the model often
+    # adds despite the prompt. Do this BEFORE the inner fence converter
+    # so the JSON itself isn't mistaken for fenced code.
+    unwrapped = _strip_outer_wrappers(text)
+    if unwrapped != text:
+        try:
+            return json.loads(unwrapped)
+        except json.JSONDecodeError:
+            text = unwrapped
 
     # Convert ```code fences``` into JSON strings — the model often uses
     # markdown for code_blocks even when told not to, which breaks JSON
