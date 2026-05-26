@@ -118,6 +118,89 @@ def delete_note(note_id: str) -> bool:
     return True
 
 
+def list_teachable_sections() -> list:
+    """
+    Return every section from every saved note, structured for the
+    Classroom picker. The Classroom now uses the Notebook as its
+    primary source of "what's available to teach" — this function
+    is the read API behind that view.
+
+    Returned shape:
+      [
+        {
+          "notebook_id":   "...",
+          "title":         "FE102 week 2 study guide",
+          "created_at":    "ISO-8601",
+          "section_count": N,
+          "sections": [
+            {
+              "section_index":   0,
+              "event_id":        "...",
+              "lesson":          "Tour your React project",
+              "course":          "FE102",
+              "week":            "2",
+              "grounding_ratio": 0.87 | null,
+              "content_preview": "first ~120 chars of section content",
+            },
+            ...
+          ],
+        },
+        ...
+      ]
+
+    Sorted newest-first by note creation. Notes with zero section
+    pieces (i.e. nothing teachable) are omitted entirely. The
+    `cached_plan_id` correlation is done in the controller, not
+    here, to keep this store free of cross-module dependencies.
+    """
+    _ensure_dir()
+    notes = []
+    for fn in os.listdir(NOTEBOOK_DIR):
+        if not fn.endswith(".json"):
+            continue
+        path = os.path.join(NOTEBOOK_DIR, fn)
+        try:
+            with open(path) as f:
+                note = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        section_pieces = []
+        for i, p in enumerate(note.get("pieces") or []):
+            if p.get("kind") != "section":
+                continue
+            content = p.get("content") or ""
+            preview = content.strip().replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:119] + "…"
+            grounding = (p.get("grounding_report") or {}).get("overall_ratio")
+            section_pieces.append({
+                "section_index": i,
+                "event_id": p.get("event_id"),
+                "lesson": p.get("lesson"),
+                "course": p.get("course"),
+                "week": p.get("week"),
+                "grounding_ratio": grounding,
+                "content_preview": preview,
+            })
+
+        if not section_pieces:
+            # Note has no teachable sections — skip rather than show
+            # an empty group in the Classroom picker.
+            continue
+
+        notes.append({
+            "notebook_id": note.get("notebook_id"),
+            "title": note.get("title"),
+            "created_at": note.get("created_at"),
+            "section_count": len(section_pieces),
+            "sections": section_pieces,
+        })
+
+    notes.sort(key=lambda n: n.get("created_at") or "", reverse=True)
+    return notes
+
+
 # =========================================================
 # INTERNAL
 # =========================================================

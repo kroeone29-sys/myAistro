@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { writeFetch } from "../../lib/writeAuth";
 import { BEAT_TYPES } from "./classroomTypes";
 import LessonPicker from "./LessonPicker";
+import NotebookSectionPicker from "./NotebookSectionPicker";
 import LessonPlanSidebar from "./LessonPlanSidebar";
 import BeatRenderer from "./BeatRenderer";
 
@@ -37,6 +38,14 @@ export default function ClassroomPanel({
   const [checkResultByBeat, setCheckResultByBeat] = useState(() => new Map());
   const planCacheCheckedRef = useRef(false);
 
+  // Which picker view is visible when phase === "PICKER".
+  //   "notebook" (default) = NotebookSectionPicker — primary, listens
+  //                          to what the user has saved
+  //   "sot"                = LessonPicker — secondary, "browse all lessons"
+  // Tunnel visitors (isOwner=false) skip the notebook view entirely
+  // since they can't save to it; their default is the SOT picker.
+  const [pickerMode, setPickerMode] = useState(isOwner ? "notebook" : "sot");
+
   // Consume the presetEntry from the drawer ("Teach me this")
   useEffect(() => {
     if (!presetEntry) return;
@@ -65,6 +74,10 @@ export default function ClassroomPanel({
     setError(null);
     setCheckResultByBeat(new Map());
     planCacheCheckedRef.current = false;
+    // Return owners to the notebook picker on session end — that's
+    // the primary entry surface. Guests stay on SOT (they can't
+    // populate a notebook).
+    setPickerMode(isOwner ? "notebook" : "sot");
   };
 
   async function startWithEntry(entry) {
@@ -239,6 +252,27 @@ export default function ClassroomPanel({
       if (!planRes.ok) throw new Error(`HTTP ${planRes.status} fetching plan`);
       const fresh = await planRes.json();
       await beginSessionFromPlan(fresh);
+    } catch (e) {
+      setError(e.message ?? String(e));
+      setPhase("PICKER");
+    }
+  }
+
+  // Resume a previously-generated plan instantly — no model call,
+  // no streaming, just fetch the saved plan and drop into PLAYING.
+  // Triggered by the Notebook picker's "▶ Resume" button on sections
+  // that already have a cached plan from a prior "🎓 Teach" click.
+  async function resumeCachedPlan(planId) {
+    setError(null);
+    setPhase("PLANNING");
+    setPlanningStatus("Loading saved plan…");
+    try {
+      const res = await fetch(`/api/classroom/plan/${planId}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} fetching plan ${planId}`);
+      }
+      const p = await res.json();
+      await beginSessionFromPlan(p);
     } catch (e) {
       setError(e.message ?? String(e));
       setPhase("PICKER");
@@ -425,8 +459,20 @@ export default function ClassroomPanel({
 
       {!isOwner && <GuestBanner />}
 
-      {phase === "PICKER" && (
-        <LessonPicker onPick={startWithEntry} />
+      {phase === "PICKER" && pickerMode === "notebook" && (
+        <NotebookSectionPicker
+          onTeachSection={(payload) => generatePlanFromSection(payload)}
+          onResumePlan={({ plan_id }) => resumeCachedPlan(plan_id)}
+          onBrowseAll={() => setPickerMode("sot")}
+        />
+      )}
+
+      {phase === "PICKER" && pickerMode === "sot" && (
+        <LessonPickerWithBackLink
+          onPick={startWithEntry}
+          onBack={() => setPickerMode("notebook")}
+          showBack={isOwner}
+        />
       )}
 
       {phase === "PLANNING" && (
@@ -466,6 +512,42 @@ export default function ClassroomPanel({
           onAnother={reset}
         />
       )}
+    </div>
+  );
+}
+
+// LessonPicker wrapped with a "← Back to notebook" link at the top.
+// The Classroom's secondary picker view — reached when the user clicks
+// "Browse all lessons →" from the primary NotebookSectionPicker.
+// Owners see the back link (they can return to their notebook view);
+// tunnel-visitor guests don't (their default IS the SOT picker, so
+// "back to notebook" would dead-end into an empty notebook they can't
+// write to).
+function LessonPickerWithBackLink({ onPick, onBack, showBack }) {
+  return (
+    <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", zIndex: 5 }}>
+      {showBack && (
+        <div style={{ padding: "16px 32px 0", textAlign: "left", zIndex: 6 }}>
+          <button
+            onClick={onBack}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-dim)",
+              fontSize: 12,
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.06em",
+              cursor: "pointer",
+              padding: "4px 0",
+            }}
+          >
+            ← Back to notebook
+          </button>
+        </div>
+      )}
+      <div style={{ flex: 1, position: "relative" }}>
+        <LessonPicker onPick={onPick} />
+      </div>
     </div>
   );
 }

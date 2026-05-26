@@ -108,6 +108,30 @@ def list_plans_for_event(event_id: str) -> list:
     return out
 
 
+def list_all_plans() -> list:
+    """
+    Every saved plan, newest first. Used by the notebook controller
+    to cross-reference saved plans against notebook sections (so the
+    Classroom picker can show "▶ Resume" when a section already has a
+    generated plan instead of always regenerating).
+
+    Returns the full plan dicts. For the cross-reference use case the
+    caller typically only needs `plan_id`, `lesson_event_id`,
+    `derived_from_notebook_id`, and `derived_from_section_index` —
+    everything else is just extra payload.
+    """
+    _ensure_dirs()
+    out = []
+    for fname in os.listdir(PLANS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        plan = _load_json(os.path.join(PLANS_DIR, fname))
+        if plan:
+            out.append(plan)
+    out.sort(key=lambda p: p.get("created_at") or "", reverse=True)
+    return out
+
+
 # =========================================================
 # SESSIONS
 # =========================================================

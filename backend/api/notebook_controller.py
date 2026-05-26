@@ -20,11 +20,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core.auth import require_write_password
+from core.classroom_store import list_all_plans
 from core.grounding_check import combined_report
 from core.notebook_store import (
     delete_note,
     get_note,
     list_notes,
+    list_teachable_sections,
     save_note,
 )
 from core.sot_groups import load_sot
@@ -139,6 +141,55 @@ def save_endpoint(req: SaveNoteRequest) -> dict:
 def list_endpoint() -> list:
     """All saved notes' summary metadata (no body content), newest-first."""
     return list_notes()
+
+
+@router.get("/notebook/teachable")
+def teachable_endpoint() -> list:
+    """
+    The Notebook → Classroom picker feed. Returns every section from
+    every saved note, structured as note → sections, with each section
+    enriched by `cached_plan_id` if the Teacher Aide has already
+    generated a plan for it.
+
+    The Classroom picker uses this as its primary "what's available
+    to teach" surface — the new default entry path that listens to
+    what the user has curated rather than the entire SOT.
+
+    Cross-reference logic:
+      For each (notebook_id, section_index) → look up matching saved
+      plans via the `derived_from_notebook_id` / `derived_from_section_index`
+      provenance fields on the plan. Most recent matching plan wins.
+      If no match, cached_plan_id is null and the UI shows "🎓 Teach"
+      (will trigger a fresh generation); if matched, UI shows
+      "▶ Resume" (loads the cached plan instantly).
+    """
+    notes = list_teachable_sections()
+
+    # Build a (notebook_id, section_index) → plan_id map by scanning
+    # all plans once. O(plans) regardless of how many sections we
+    # have to cross-reference. plans are pre-sorted newest-first by
+    # the store, so the first plan we see for a key wins (== most
+    # recent generation for that section).
+    plan_by_section: dict = {}
+    for p in list_all_plans():
+        nid = p.get("derived_from_notebook_id")
+        sidx = p.get("derived_from_section_index")
+        if nid is None or sidx is None:
+            # Legacy plan (generated from the SOT directly, not from
+            # a notebook section). Skipped here; the Classroom's
+            # secondary "browse all lessons" surface still finds it
+            # via list_plans_for_event.
+            continue
+        key = (nid, sidx)
+        if key not in plan_by_section:
+            plan_by_section[key] = p.get("plan_id")
+
+    for note in notes:
+        for section in note.get("sections", []):
+            key = (note["notebook_id"], section["section_index"])
+            section["cached_plan_id"] = plan_by_section.get(key)
+
+    return notes
 
 
 @router.get("/notebook/{note_id}")
