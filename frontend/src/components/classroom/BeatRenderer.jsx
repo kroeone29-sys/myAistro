@@ -8,16 +8,51 @@ import { BEAT_TYPES, BEAT_TYPE_LABELS, TYPEWRITER_CPS } from "./classroomTypes";
  * student answer form mounts once the question has finished typing.
  *
  * Props:
- *   beat:    Beat
- *   onAdvance: () => void           // hit Next
- *   onSubmit:  (answer) => void     // CHECK answer submitted
- *   result:    { score, passed, correction, canonical_answer } | null
- *              — present after a CHECK has been graded
+ *   beat:        Beat
+ *   onAdvance:   () => void           // hit Next
+ *   onSubmit:    (answer) => void     // CHECK answer submitted
+ *   onRaiseHand: () => void | null    // open the Q&A overlay (Teacher v2).
+ *                                     // null/undefined to hide the button
+ *                                     // (guest mode, no session for Q&A).
+ *   result:      { score, passed, correction, canonical_answer } | null
+ *                — present after a CHECK has been graded
  */
-export default function BeatRenderer({ beat, onAdvance, onSubmit, result }) {
+export default function BeatRenderer({ beat, onAdvance, onSubmit, result, onRaiseHand }) {
   if (!beat) return null;
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto" }}>
+    <div style={{ maxWidth: 760, margin: "0 auto", position: "relative" }}>
+      {/* Raise-hand button — top-right of the beat area, small enough
+          not to compete with the main Next button, visible enough that
+          the student knows it's there. Always available (including
+          during CHECK pending grading) — a student might want to ask
+          about the question itself before answering. */}
+      {onRaiseHand && (
+        <button
+          onClick={onRaiseHand}
+          title="Ask the teacher a question about this lesson"
+          style={{
+            position: "absolute",
+            top: -8,
+            right: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 11px",
+            background: "rgba(247,255,0,0.08)",
+            border: "1px solid rgba(247,255,0,0.35)",
+            borderRadius: 999,
+            color: "var(--accent-yellow, #f7ff00)",
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            zIndex: 2,
+          }}
+        >
+          🙋 Raise hand
+        </button>
+      )}
       <BeatHeader type={beat.type} />
       {beat.type === BEAT_TYPES.INTRO && (
         <BeatBody text={beat.content} accent />

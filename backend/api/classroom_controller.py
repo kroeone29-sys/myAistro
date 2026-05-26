@@ -37,8 +37,9 @@ from core.classroom_store import (
 from core.notebook_store import get_note
 from agents.plan_validator import validate_plan
 from agents.quiz_agent import grade_answer
-from agents.teacher_agent import phrase_correction
+from agents.teacher_agent import phrase_correction, stream_question_answer
 from agents.teacher_aide_agent import parse_plan, stream_plan
+from core.grounding_check import combined_report
 
 
 router = APIRouter()
@@ -64,6 +65,46 @@ def _find_entry(event_id: str) -> Optional[dict]:
         if e.get("event_id") == event_id:
             return e
     return None
+
+
+def _resolve_plan_source_text(plan: dict) -> str:
+    """
+    Resolve the grounding source for a Plan — the material the
+    Teacher should ground its runtime answers against.
+
+    Two paths, mirroring the two ways a plan can be generated:
+      - If the plan was generated from a Notebook section
+        (`derived_from_notebook_id` + `derived_from_section_index`
+        are set), return that section's content.
+      - Otherwise the plan was generated from a SOT entry directly
+        (legacy path), so look up the entry by `lesson_event_id`
+        and return its raw_text.
+
+    Returns "" if nothing can be resolved (in which case the
+    raise-hand endpoint should refuse to answer rather than ground
+    against nothing).
+    """
+    # Notebook-derived plans: walk back through the notebook store
+    nid = plan.get("derived_from_notebook_id")
+    sidx = plan.get("derived_from_section_index")
+    if nid is not None and sidx is not None:
+        from core.notebook_store import get_note
+        note = get_note(nid)
+        if note:
+            pieces = note.get("pieces") or []
+            if 0 <= sidx < len(pieces):
+                piece = pieces[sidx]
+                if piece.get("kind") == "section":
+                    return piece.get("content") or ""
+
+    # SOT-derived plans: look up the source entry's raw_text
+    eid = plan.get("lesson_event_id")
+    if eid:
+        entry = _find_entry(eid)
+        if entry:
+            return entry.get("raw_text") or ""
+
+    return ""
 
 
 def _log(msg: str) -> None:
@@ -464,6 +505,118 @@ def session_advance_endpoint(req: SessionAdvanceRequest):
     session["current_beat"] = new_idx
     update_session(session)
     return {"session": session, "at_end": new_idx >= len(beats)}
+
+
+# =========================================================
+# SESSION  ←  RAISE-HAND
+# Student-side Q&A mid-session. The Teacher answers the question
+# grounded in the same lesson's source material the plan was built
+# from. Streams NDJSON tokens; the assembled answer + a Python
+# grounding report get appended to the session record as events
+# after the stream completes (so reload-into-session preserves the
+# Q&A history alongside beat events).
+# =========================================================
+class SessionRaiseHandRequest(BaseModel):
+    session_id: str
+    question: str
+
+
+@router.post(
+    "/classroom/session/raise-hand",
+    dependencies=[Depends(require_write_password)],
+)
+def session_raise_hand_endpoint(req: SessionRaiseHandRequest):
+    """
+    Student raises hand mid-lesson with a question. Streams the
+    Teacher's answer (NDJSON tokens), then closes with a `done`
+    event carrying the assembled answer text and a grounding
+    report. Both get appended to the session's events log so the
+    Q&A is part of the session's persistent record.
+    """
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question cannot be empty")
+
+    session = load_session(req.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    plan = load_plan(session.get("plan_id"))
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found for session")
+
+    source_text = _resolve_plan_source_text(plan)
+    if not source_text.strip():
+        # No source to ground against — refuse rather than let the
+        # Teacher hallucinate. This is the same posture validation
+        # takes at the SOT-write boundary.
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot resolve grounding source for this plan — refusing to answer ungrounded.",
+        )
+
+    source_lesson = plan.get("source_lesson") or {}
+    course = source_lesson.get("course") or ""
+    week = source_lesson.get("week") or ""
+    lesson = source_lesson.get("lesson") or ""
+
+    # Persist the question event immediately, before the stream —
+    # so even if the stream fails mid-flight, the session record
+    # shows the student asked something. The answer event gets
+    # appended on stream completion.
+    current_beat = session.get("current_beat", 0)
+    session.setdefault("events", []).append({
+        "type": "raise_hand_question",
+        "question": question,
+        "at_beat": current_beat,
+    })
+    update_session(session)
+
+    def stream():
+        try:
+            yield json.dumps({"type": "start", "question": question}) + "\n"
+
+            assembled = []
+            for token in stream_question_answer(
+                question=question,
+                source_text=source_text,
+                course=course,
+                week=week,
+                lesson=lesson,
+            ):
+                assembled.append(token)
+                yield json.dumps({"type": "token", "value": token}) + "\n"
+
+            answer_text = "".join(assembled).strip()
+
+            # Python grounding gate on the Teacher's runtime output —
+            # same combined_report primitive the validation_agent and
+            # notebook_controller use. The grounding ratio is shipped
+            # to the client AND stored on the session event so a low
+            # ratio is visible at reload time too.
+            grounding = combined_report(answer_text, source_text)
+
+            # Append the answer event to the session and persist.
+            fresh = load_session(req.session_id)
+            if fresh:
+                fresh.setdefault("events", []).append({
+                    "type": "raise_hand_answer",
+                    "question": question,
+                    "answer": answer_text,
+                    "at_beat": current_beat,
+                    "grounding_report": grounding,
+                })
+                update_session(fresh)
+
+            yield json.dumps({
+                "type": "done",
+                "answer": answer_text,
+                "grounding_report": grounding,
+            }) + "\n"
+        except Exception as e:
+            traceback.print_exc()
+            yield json.dumps({"type": "error", "message": str(e)}) + "\n"
+
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
 class SessionEndRequest(BaseModel):
