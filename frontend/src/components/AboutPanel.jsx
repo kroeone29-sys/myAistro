@@ -203,15 +203,47 @@ export default function AboutPanel() {
             effect after successful commit, never before.
           </p>
           <p>
+            Those four gates protect the SOT itself. Two more gates
+            carry the same pattern to the persistent layers downstream
+            of it — the Notebook and the Teacher Aide's plans:
+          </p>
+          <p>
+            <strong>The Notebook gate</strong> verifies each saved
+            advisor section against the source SOT entry it was
+            assembled from — same substring + token-match logic,
+            shared with validation through{" "}
+            <Code>core/grounding_check.py</Code>. The result is
+            attached as a <Code>grounding_report</Code> per section
+            at save time, so the UI chips each saved section with its
+            ratio (green ≥ 70%, yellow ≥ 50%, red &lt; 50%) and the
+            Teacher Aide downstream sees the quality signal it should
+            trust.
+          </p>
+          <p>
+            <strong>The Teacher plan gate</strong> runs the same
+            combined check on generated lesson plans against the
+            source they were built from — either a SOT entry or a
+            Notebook section, depending on which entry path triggered
+            the generation. Structural validation still hard-blocks
+            on malformed plans; grounding is a soft signal (warning
+            below 0.5 overall_ratio) that persists with the saved
+            plan so the Classroom UI can surface low-grounding plans
+            rather than play them silently.
+          </p>
+          <p>
             The scaffold is where the system gets its reliability. The
             LLM generates — fluently, usefully, occasionally with
-            material that wasn't in the lesson. The deterministic gates
-            around it decide what survives: validation refuses bad
-            output, the Judge picks between alternatives, the
-            orchestrator decides when the model runs at all, Memory
-            Writer commits only what made it through every prior check.
-            The system doesn't trust any single LLM call. It trusts the
-            structure those calls flow through.
+            material that wasn't in the source. The deterministic
+            gates around it decide what survives: validation refuses
+            bad output at the SOT boundary, the Judge picks between
+            alternatives during audit, the orchestrator decides when
+            the model runs at all, Memory Writer commits only what
+            passed every prior check, the Notebook gate verifies what
+            the advisor saved, the plan gate verifies what the Teacher
+            Aide produced. The system doesn't trust any single LLM
+            call. It trusts the structure those calls flow through —
+            and that structure now extends uniformly to every
+            persistent artifact derived from the SOT.
           </p>
         </Section>
 
@@ -390,55 +422,92 @@ export default function AboutPanel() {
           </p>
         </Section>
 
-        <Section title="Five ways to interact with your knowledge">
+        <Section title="The curation chain">
           <p>
-            Once a lesson is in the SOT, you have five ways to engage with
-            it:
+            The five core surfaces aren't five parallel modes of
+            access. They're a single workflow with a clear direction.
+            Each surface listens to the one before it and produces
+            the input the next one needs:
           </p>
+          <FormulaBlock>
+{`Ingest  →  SOT (List view)  →  my-AI-stro Chat  →  Notebook  →  Classroom`}
+          </FormulaBlock>
           <ul style={listStyle}>
             <li>
-              <strong>List view</strong> — read it. The structured summary,
-              key concepts, definitions, code blocks, original raw text.
-              The reference layer.
+              <strong>Ingest</strong> — paste a raw lesson. The
+              five-stage pipeline turns it into a validated SOT entry.
+              Hallucinated content is dropped by the validation gate
+              before the entry ever reaches disk; failures don't write.
             </li>
             <li>
-              <strong>Quiz Me</strong> — recall. A question is generated
-              from the lesson; you answer; the grader scores you 0–100.
+              <strong>List view</strong> — read the SOT directly. The
+              structured summary, key concepts, definitions, code
+              blocks, original raw text. The reference layer; the SOT
+              exposed as a browsable library. Where you go when you
+              want to read the source, not interpretations of it.
             </li>
             <li>
-              <strong>my-AI-stro Chat</strong> — query. Natural-language
-              Q&A grounded strictly in retrieved SOT entries, served by
-              the dedicated advisor pipeline described above. The
+              <strong>my-AI-stro Chat</strong> — query. The advisor
+              pipeline retrieves relevant SOT entries, writes an
+              opening arc, generates one focused section per entry,
+              then a closing recap. Streams live with a staging
+              indicator showing section-by-section progress. The
               advisor refuses to invent material you haven't actually
               learned.
             </li>
             <li>
-              <strong>Notebook</strong> — save. When the advisor
-              produces a study guide you want to keep, save it to your
-              Notebook. The saved note is a snapshot — same markdown,
-              same syntax-highlighted code, same structure — viewable
-              without re-running the 3-4 minute pipeline. Each saved
-              section keeps a clickable reference back to the source
-              SOT lesson it was assembled from, so the Notebook is a
-              navigation hub between derived content and source. Notes
-              are user-curated artifacts: explicitly not part of the
-              SOT (the SOT is "what I learned"; the Notebook is "what
-              I asked the advisor to assemble from what I learned").
+              <strong>Notebook</strong> — save what's worth keeping.
+              An advisor response becomes a persistent snapshot — same
+              markdown, same syntax-highlighted code, same structure —
+              viewable later without re-running the 3-4 minute
+              pipeline. Each saved section keeps a clickable reference
+              back to its source SOT lesson, plus a grounding ratio
+              showing how anchored its content stayed to the source.
+              Notes are user-curated artifacts, explicitly not part
+              of the SOT itself: the SOT is "what I learned"; the
+              Notebook is "what I asked the advisor to assemble from
+              what I learned." Saved sections become the input the
+              next stage consumes.
             </li>
             <li>
-              <strong>Classroom</strong> — be taught. The Teacher Aide
-              builds a structured lesson plan; the Teacher plays it back
-              beat-by-beat on a chalkboard with intro, exposition,
-              examples, comprehension checks, and recap. You answer the
-              checks; the grader scores them; the teacher gives
-              personalized corrections.
+              <strong>Classroom</strong> — be taught. Lists every
+              saved Notebook section as a teachable unit. Click any
+              one to start a beat-by-beat session built specifically
+              for that lesson. Sections you've already taught from
+              show <strong>▶ Resume</strong> (the cached plan loads
+              instantly); fresh ones show <strong>🎓 Teach</strong>{" "}
+              (~30 seconds for the Teacher Aide to draft a plan and
+              Python-validate it against the section). The Teacher
+              plays the plan beat-by-beat on a chalkboard — intro,
+              exposition, examples, CHECK questions, recap. CHECK
+              answers get graded; the teacher gives warm,
+              source-specific corrections. A secondary "Browse all
+              lessons →" link still lets you teach a SOT lesson you
+              haven't saved yet — the one-off escape hatch.
             </li>
           </ul>
           <p>
-            And one off-leash mode: <strong>General Chat</strong> — same
-            local model layer, no SOT grounding. For when you want to ask
-            the model anything without being constrained by your notes.
+            Two auxiliary surfaces sit off the chain — they read from
+            the SOT (or in one case, from nowhere) but don't produce
+            inputs for any other stage:
           </p>
+          <ul style={listStyle}>
+            <li>
+              <strong>Quiz Me</strong> — recall test. A question is
+              generated from a SOT entry; you answer; the grader
+              scores 0–100 with itemized corrections. Doesn't persist
+              a learning artifact — it's exercise, not curation. Uses
+              llama3.2 to generate the question and mistral to grade
+              the answer (the LLM-as-judge separation rule in action).
+            </li>
+            <li>
+              <strong>General Chat</strong> — untethered conversation.
+              No SOT grounding. Routed to llama3.2, explicitly NOT
+              the summarization model (trust isolation). For when you
+              want to ask the model anything without being constrained
+              by your notes.
+            </li>
+          </ul>
         </Section>
 
         <Section title="Where the data lives">
