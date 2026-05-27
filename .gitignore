@@ -29,6 +29,7 @@ dist/
 backend/memory_store.json
 backend/archived_store.json
 backend/visits.json
+backend/gradebook.json
 backend/memory_store.*.json.bak
 backend/archived_store.*.json.bak
 

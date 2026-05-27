@@ -34,6 +34,7 @@ from core.classroom_store import (
     start_session as start_session_record,
     update_session,
 )
+from core.gradebook_store import record_check as gradebook_record_check
 from core.notebook_store import get_note
 from agents.plan_validator import validate_plan
 from agents.teacher_agent import stream_question_answer
@@ -482,6 +483,29 @@ def session_answer_endpoint(req: SessionAnswerRequest):
     stats["avg_check_score"] = round(prev_avg + (score - prev_avg) / n, 2)
 
     update_session(session)
+
+    # Phase 2 gradebook layer — append the check record to the canonical
+    # event log. Wrapped in try/except: gradebook writes must never fail
+    # a CHECK submit. Losing one record is acceptable; surfacing an
+    # internal-storage error to the student mid-lesson is not.
+    try:
+        source_lesson = plan.get("source_lesson") or {}
+        gradebook_record_check(
+            session_id=session.get("session_id") or "",
+            plan_id=plan.get("plan_id") or "",
+            lesson_event_id=plan.get("lesson_event_id"),
+            course=source_lesson.get("course") or "",
+            week=source_lesson.get("week") or "",
+            lesson=source_lesson.get("lesson") or "",
+            beat_id=req.beat_id,
+            selected_index=req.selected_index,
+            correct_index=correct_index,
+            passed=passed,
+            score=score,
+            first_try=first_try,
+        )
+    except Exception as e:
+        _log(f"gradebook write failed (non-fatal): {e}")
 
     return {
         "score": score,
