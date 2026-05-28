@@ -16,7 +16,10 @@ const PALETTE = [
 ];
 
 const STAR_COUNT = 220;
-const HEADER_OFFSET = 160; // matches App.jsx — content sits below the header
+const HEADER_OFFSET = 160; // desktop default — matches App.jsx desktop header height.
+// Mobile passes a smaller `headerOffset` prop (56) so the canvas
+// sizes itself correctly under the compact mobile header instead of
+// overflowing the available area.
 
 // Synthetic "my-AI-stro Chat" hub at graph origin. Every SOT node is
 // linked to it, and a custom tangential force makes them orbit. The
@@ -94,12 +97,27 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersion = 0 }) {
+export default function GraphPanel({
+  onSelect,
+  selectedId,
+  onHubClick,
+  dataVersion = 0,
+  // Ambient mode: the graph renders the heartbeat + forces + nodes,
+  // but doesn't respond to taps/clicks/hover, hides the legend +
+  // settings panel, and slows the heartbeat to be less visually
+  // noisy. Used by MobileHomePanel as a living background behind
+  // its action chips — the graph is atmosphere, not navigation.
+  ambient = false,
+  // Pixel height of whatever header sits above this graph in the
+  // current viewport. Defaults to the desktop header (160px); the
+  // mobile home passes 56 to match the compact mobile header.
+  headerOffset = HEADER_OFFSET,
+}) {
   const [graph, setGraph] = useState(null);
   const [error, setError] = useState(null);
   const [size, setSize] = useState({
     w: window.innerWidth,
-    h: window.innerHeight - HEADER_OFFSET,
+    h: window.innerHeight - headerOffset,
   });
   const [hoverNode, setHoverNode] = useState(null);
   const [hoverPos, setHoverPos] = useState(null); // screen coords for ripple
@@ -164,7 +182,7 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
 
   useEffect(() => {
     function onResize() {
-      setSize({ w: window.innerWidth, h: window.innerHeight - HEADER_OFFSET });
+      setSize({ w: window.innerWidth, h: window.innerHeight - headerOffset });
     }
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -369,7 +387,11 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
   // node list without hitting the TDZ.
   useEffect(() => {
     if (!graph?.nodes?.length) return;
-    const HEARTBEAT_MS = 3700;
+    // Ambient mode slows the heartbeat to ~2x — same pulses, less
+    // visually noisy as a background. Desktop / interactive use keeps
+    // the original 3700ms cadence so the graph feels "alive" rather
+    // than sleepy.
+    const HEARTBEAT_MS = ambient ? 7400 : 3700;
     const fire = () => {
       const nodes = graphData.nodes;
       const hub = nodes.find((n) => n.isHub);
@@ -392,7 +414,7 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
     fire();
     const t = setInterval(fire, HEARTBEAT_MS);
     return () => clearInterval(t);
-  }, [graph, graphData, courseColor]);
+  }, [graph, graphData, courseColor, ambient]);
 
   // Baseline alpha — keep the d3 simulation always-ticking so display
   // toggles (course hulls, starfield, animated edges) and force changes
@@ -1121,7 +1143,11 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
         inset: 0,
         background: "transparent",
         zIndex: 5,
-        cursor: hoverNode ? "pointer" : "default",
+        // Ambient: never show a hover-pointer cursor and ignore all
+        // pointer events at the wrapper level so taps fall through to
+        // overlaid UI (action chips on the mobile home).
+        cursor: ambient ? "default" : hoverNode ? "pointer" : "default",
+        pointerEvents: ambient ? "none" : "auto",
       }}
     >
       <ForceGraph2D
@@ -1148,10 +1174,16 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
           d3VelocityDecay={settings.forces.velocityDecay}
           d3AlphaDecay={0.05}
           warmupTicks={80}
+          // Ambient mode disables interaction at the library level too —
+          // belt and suspenders alongside the wrapper's pointerEvents:none,
+          // so even if a future change loosens the wrapper rule the graph
+          // itself stays passive when ambient.
+          enableNodeDrag={!ambient}
+          enablePointerInteraction={!ambient}
           onRenderFramePre={onRenderFramePre}
           onRenderFramePost={onRenderFramePost}
-          onNodeHover={setHoverNode}
-          onNodeClick={(node) => {
+          onNodeHover={ambient ? undefined : setHoverNode}
+          onNodeClick={ambient ? undefined : (node) => {
             if (node?.isHub) {
               onHubClick?.();
               return;
@@ -1163,11 +1195,12 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
               fgRef.current.zoom(2.2, 800);
             }
           }}
-          onBackgroundClick={() => onSelect?.(null)}
+          onBackgroundClick={ambient ? undefined : () => onSelect?.(null)}
         />
 
-      {/* Hover ripple */}
-      {hoverNode && hoverPos && (
+      {/* Hover ripple, legend, settings — all UI chrome, all hidden in
+          ambient mode so the graph reads as pure background. */}
+      {!ambient && hoverNode && hoverPos && (
         <HoverRipple
           x={hoverPos.x}
           y={hoverPos.y}
@@ -1175,15 +1208,17 @@ export default function GraphPanel({ onSelect, selectedId, onHubClick, dataVersi
         />
       )}
 
-      <Legend
-        courseColor={courseColor}
-        visibleCount={graphData.nodes.filter((n) => !n.isHub).length}
-        totalCount={graph.nodes.length}
-        linkCount={graphData.links.filter((l) => !l.isHubLink).length}
-        onOpenSettings={() => setSettingsOpen(true)}
-      />
+      {!ambient && (
+        <Legend
+          courseColor={courseColor}
+          visibleCount={graphData.nodes.filter((n) => !n.isHub).length}
+          totalCount={graph.nodes.length}
+          linkCount={graphData.links.filter((l) => !l.isHubLink).length}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
+      )}
 
-      {settingsOpen && (
+      {!ambient && settingsOpen && (
         <SettingsPanel
           settings={settings}
           setSettings={setSettings}

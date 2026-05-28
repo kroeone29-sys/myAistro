@@ -39,6 +39,7 @@ import ArchivesPanel from "./components/ArchivesPanel";
 import ClassroomPanel from "./components/classroom/ClassroomPanel";
 import NotebookPanel from "./components/NotebookPanel";
 import AboutPanel from "./components/AboutPanel";
+import MobileHomePanel from "./components/MobileHomePanel";
 import {
   getStoredWritePassword,
   setStoredWritePassword,
@@ -209,12 +210,28 @@ export default function App() {
           zIndex: 1,
         }}
       >
-        {view === "map" && (
+        {view === "map" && !isMobile && (
           <GraphPanel
             onSelect={openLesson}
             selectedId={selected?.id ?? selected?.event_id ?? null}
             dataVersion={dataVersion}
             onHubClick={() => openModal("advisor")}
+          />
+        )}
+        {view === "map" && isMobile && (
+          // Mobile's "map" view IS the home screen — ambient graph
+          // background + action chips. The interactive graph is a
+          // desktop affordance; on a 400px-wide touchscreen the graph
+          // serves better as atmosphere than as a navigation surface.
+          <MobileHomePanel
+            stats={stats}
+            onQuickQuiz={() => openModal("quiz")}
+            onClassroom={
+              CLASSROOM_ENABLED ? () => setView("classroom") : undefined
+            }
+            onNotebook={() => setView("notebook")}
+            onAllLessons={() => setView("list")}
+            headerOffset={headerHeight}
           />
         )}
         {view === "list" && (
@@ -434,9 +451,12 @@ function MobileBrandMark() {
 function MobileViewPicker({ view, setView }) {
   const [open, setOpen] = useState(false);
   // Each option is [value, label]. Order matches desktop ViewToggle
-  // so muscle memory transfers across devices.
+  // so muscle memory transfers across devices. "map" is renamed to
+  // "Home" on mobile because the mobile rendering of that view is the
+  // dedicated home screen (action chips over an ambient graph), not
+  // the interactive graph the desktop label implies.
   const options = [
-    ["map", "Graph"],
+    ["map", "Home"],
     ["list", "List"],
     ["notebook", "Notebook"],
     ["archives", "Archives"],
