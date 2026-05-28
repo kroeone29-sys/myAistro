@@ -23,8 +23,10 @@
  */
 
 import { useEffect, useState } from "react";
+import { useIsMobile } from "../lib/useMediaQuery";
 
 export default function LessonDrawer({ entry, onClose, onQuiz, onChat, onTeach }) {
+  const isMobile = useIsMobile();
   // Slide-in animation: render even when entry is null briefly so the
   // exit transition can play. Track an "open" boolean separately.
   const [open, setOpen] = useState(false);
@@ -58,9 +60,33 @@ export default function LessonDrawer({ entry, onClose, onQuiz, onChat, onTeach }
   const concepts = stash.key_concepts ?? [];
   const definitions = stash.definitions ?? [];
 
-  return (
-    <div
-      style={{
+  // On mobile the drawer becomes a near-full-screen sheet slid up from
+  // the bottom — radically different geometry than the desktop side-panel
+  // (top:180, right:24, width:400). The drawer is the only useful thing
+  // on screen when it's open, so it should claim the screen.
+  const drawerStyle = isMobile
+    ? {
+        position: "fixed",
+        top: 56,           // sit just below the mobile header (56px tall)
+        right: 0,
+        left: 0,
+        bottom: 0,
+        width: "auto",
+        background: "var(--panel-strong)",
+        border: "none",
+        borderTop: "1px solid var(--border-strong)",
+        borderRadius: 0,
+        boxShadow: "0 -8px 32px rgba(0,0,0,0.6)",
+        zIndex: 35,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        // Slide up from the bottom of the screen.
+        transform: open ? "translateY(0)" : "translateY(100%)",
+        opacity: open ? 1 : 0,
+        transition: "transform 0.24s ease, opacity 0.24s ease",
+      }
+    : {
         position: "fixed",
         top: 180,
         right: open ? 24 : -440,
@@ -77,7 +103,10 @@ export default function LessonDrawer({ entry, onClose, onQuiz, onChat, onTeach }
         overflow: "hidden",
         opacity: open ? 1 : 0,
         transition: "right 0.24s ease, opacity 0.24s ease",
-      }}
+      };
+
+  return (
+    <div style={drawerStyle}
     >
       <div
         style={{

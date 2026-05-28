@@ -44,6 +44,7 @@ import {
   setStoredWritePassword,
   clearStoredWritePassword,
 } from "./lib/writeAuth";
+import { useIsMobile } from "./lib/useMediaQuery";
 
 // Feature flag — set VITE_CLASSROOM_ENABLED=false in .env.local to hide
 // the Classroom tab entirely without removing code. Default on.
@@ -81,6 +82,15 @@ export default function App() {
   const [writeProtected, setWriteProtected] = useState(false);
   const [unlocked, setUnlocked] = useState(!!getStoredWritePassword());
   const visitSentRef = useRef(false);
+  // Mobile flips a lot of layout decisions: header collapses, modal
+  // goes full-bleed, floating actions hide (M4 will replace them with
+  // a dedicated mobile home screen), panel top-offset shrinks.
+  const isMobile = useIsMobile();
+  // Mobile header is much shorter (no big brand row, no toggle row,
+  // no SOURCES OF TRUTH label). The main panel area starts right
+  // below it. Keeping both numbers in App.jsx so any layout drift
+  // stays in one place.
+  const headerHeight = isMobile ? 56 : 160;
 
   const refreshStats = useCallback(async () => {
     try {
@@ -186,12 +196,13 @@ export default function App() {
         unlocked={unlocked}
         onUnlock={onUnlock}
         onLock={onLock}
+        isMobile={isMobile}
       />
 
       <div
         style={{
           position: "absolute",
-          top: 160,        // start below the header so nothing renders behind it
+          top: headerHeight,  // matches the actual Header height for this viewport
           right: 0,
           bottom: 0,
           left: 0,
@@ -248,29 +259,35 @@ export default function App() {
         }
       />
 
-      <FloatingActions
-        onAdvisor={() => openModal("advisor")}
-        onGeneralChat={() => openModal("general")}
-        onQuiz={() => openModal("quiz")}
-      />
+      {/* Floating chat/quiz actions are desktop-only — the mobile UI
+          gets a dedicated home screen with action chips in M4. Showing
+          both would clutter the small viewport and the home-screen
+          chips will cover the same ground. */}
+      {!isMobile && (
+        <FloatingActions
+          onAdvisor={() => openModal("advisor")}
+          onGeneralChat={() => openModal("general")}
+          onQuiz={() => openModal("quiz")}
+        />
+      )}
 
       {modal === "ingest" && (
-        <Modal onClose={closeModal} title="Ingest a lesson">
+        <Modal onClose={closeModal} title="Ingest a lesson" isMobile={isMobile}>
           <IngestPanel embedded onIngested={onIngestSuccess} />
         </Modal>
       )}
       {modal === "quiz" && (
-        <Modal onClose={closeModal} title={modalLesson ? `Quiz: ${modalLesson.lesson}` : "Quiz"}>
+        <Modal onClose={closeModal} title={modalLesson ? `Quiz: ${modalLesson.lesson}` : "Quiz"} isMobile={isMobile}>
           <QuizPanel embedded presetEventId={modalLesson?.id ?? modalLesson?.event_id} />
         </Modal>
       )}
       {modal === "advisor" && (
-        <Modal onClose={closeModal} title={modalLesson ? `my-AI-stro Chat · ${modalLesson.lesson}` : "my-AI-stro Chat"}>
+        <Modal onClose={closeModal} title={modalLesson ? `my-AI-stro Chat · ${modalLesson.lesson}` : "my-AI-stro Chat"} isMobile={isMobile}>
           <ChatPanel embedded mode="advisor" seedLesson={modalLesson} />
         </Modal>
       )}
       {modal === "general" && (
-        <Modal onClose={closeModal} title="General Chat · llama3.2">
+        <Modal onClose={closeModal} title="General Chat · llama3.2" isMobile={isMobile}>
           <ChatPanel embedded mode="general" />
         </Modal>
       )}
@@ -312,7 +329,11 @@ function Header({
   unlocked,
   onUnlock,
   onLock,
+  isMobile,
 }) {
+  if (isMobile) {
+    return <MobileHeader view={view} setView={setView} writeProtected={writeProtected} unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />;
+  }
   return (
     <div
       style={{
@@ -340,6 +361,168 @@ function Header({
       </div>
       <BrandMark />
       <ViewToggle view={view} setView={setView} onIngest={onIngest} />
+    </div>
+  );
+}
+
+// ============================================================
+//  MOBILE HEADER  (compact bar + dropdown view picker)
+// ============================================================
+// At ~56px tall — vs the desktop's 160px — leaves more screen for
+// content. Brand wordmark on the left, view dropdown on the right.
+// No today-strip, no big toggle row, no SOURCES OF TRUTH banner;
+// those things are noise on a 400px-wide screen. The write-lock chip
+// is still here because owners need to unlock to take real Classroom
+// sessions on their phone.
+//
+// M4 will add a richer mobile home screen (graph background + action
+// chips); this header is what sits above whatever panel is showing.
+function MobileHeader({ view, setView, writeProtected, unlocked, onUnlock, onLock }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 56,
+        zIndex: 30,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "0 12px",
+        background: "rgba(4,6,10,0.92)",
+        backdropFilter: "blur(8px)",
+        borderBottom: "1px solid var(--border)",
+        pointerEvents: "auto",
+      }}
+    >
+      <MobileBrandMark />
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {writeProtected && (
+          <WriteLockChip unlocked={unlocked} onUnlock={onUnlock} onLock={onLock} />
+        )}
+        <MobileViewPicker view={view} setView={setView} />
+      </div>
+    </div>
+  );
+}
+
+function MobileBrandMark() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontFamily: "var(--font-mono)",
+        fontSize: 16,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span style={{ color: "var(--text-dim)" }}>my</span>
+      <span style={{ color: "var(--text-mute)", margin: "0 -3px" }}>-</span>
+      <span style={{ color: "var(--accent)" }}>AI</span>
+      <span style={{ color: "var(--text-mute)", margin: "0 -3px" }}>-</span>
+      <span style={{ color: "var(--text-dim)" }}>stro</span>
+    </div>
+  );
+}
+
+function MobileViewPicker({ view, setView }) {
+  const [open, setOpen] = useState(false);
+  // Each option is [value, label]. Order matches desktop ViewToggle
+  // so muscle memory transfers across devices.
+  const options = [
+    ["map", "Graph"],
+    ["list", "List"],
+    ["notebook", "Notebook"],
+    ["archives", "Archives"],
+    ...(CLASSROOM_ENABLED ? [["classroom", "Classroom"]] : []),
+    ["about", "About"],
+  ];
+  const currentLabel = options.find(([v]) => v === view)?.[1] ?? "Menu";
+
+  // Close the dropdown when the user navigates anywhere.
+  function pick(v) {
+    setView(v);
+    setOpen(false);
+  }
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          padding: "8px 14px",
+          background: "var(--accent-bg)",
+          border: "1px solid var(--accent-soft)",
+          borderRadius: 8,
+          color: "var(--accent)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          minHeight: 36,
+        }}
+      >
+        {currentLabel}
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      {open && (
+        <>
+          {/* Tap-outside catcher */}
+          <div
+            onClick={() => setOpen(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 40 }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "calc(100% + 4px)",
+              right: 0,
+              minWidth: 160,
+              background: "var(--panel-strong)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: 8,
+              boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+              zIndex: 41,
+              overflow: "hidden",
+            }}
+          >
+            {options.map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => pick(v)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "11px 14px",
+                  background: v === view ? "var(--accent-bg)" : "transparent",
+                  border: "none",
+                  borderBottom: "1px solid var(--border)",
+                  color: v === view ? "var(--accent)" : "var(--text)",
+                  fontSize: 14,
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "0.08em",
+                  cursor: "pointer",
+                  minHeight: 44,  // iOS tap-target floor
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -834,7 +1017,7 @@ function FAB({ title, onClick, icon, primary }) {
  * @param {Function} props.onClose          Called on Escape, backdrop click, or × button
  * @param {string}   props.title            Header label (uppercased + spaced)
  */
-function Modal({ children, onClose, title }) {
+function Modal({ children, onClose, title, isMobile }) {
   useEffect(() => {
     function onKey(e) {
       if (e.key === "Escape") onClose();
@@ -855,19 +1038,26 @@ function Modal({ children, onClose, title }) {
         display: "flex",
         alignItems: "stretch",
         justifyContent: "center",
-        padding: "60px 40px 40px",
+        // Full-bleed on mobile (the 60+40px padding wastes half the
+        // already-tiny phone screen). Desktop keeps the inset look so
+        // it still feels like a layer, not a navigation.
+        padding: isMobile ? 0 : "60px 40px 40px",
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
-          maxWidth: 980,
+          maxWidth: isMobile ? "none" : 980,
           height: "100%",
           background: "var(--panel-strong)",
-          border: "1px solid var(--border-strong)",
-          borderRadius: 14,
-          boxShadow: "0 20px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(57,255,20,0.06)",
+          // No border, no rounded corners, no glow on mobile —
+          // it's the whole screen, those just waste pixels.
+          border: isMobile ? "none" : "1px solid var(--border-strong)",
+          borderRadius: isMobile ? 0 : 14,
+          boxShadow: isMobile
+            ? "none"
+            : "0 20px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(57,255,20,0.06)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
