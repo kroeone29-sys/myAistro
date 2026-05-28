@@ -1,7 +1,7 @@
 {
   "name": "my-AI-stro",
   "short_name": "my-AI-stro",
-  "description": "A local-first, self-improving personal knowledge system. Turn your notes into a navigable graph, a study Notebook, and a teaching Classroom.",
+  "description": "A local-first, self-improving personal knowledge system. Turn your notes into a navigable graph, a study Notebook, and a teaching Classroom. A MoreSalamander StudioLabs production.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

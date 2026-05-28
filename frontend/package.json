@@ -15,7 +15,7 @@
     "ollama"
   ],
   "license": "MIT",
-  "author": "Kevin (0ne29)",
+  "author": "MoreSalamander StudioLabs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

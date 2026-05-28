@@ -1054,7 +1054,21 @@ function Footer() {
         textAlign: "center",
       }}
     >
-      Built locally. Lives locally. Yours.
+      <div>Built locally. Lives locally. Yours.</div>
+      {/* Studio banner. Quiet on purpose — sits below the primary
+          closing line as a publisher signature, not a brand stamp.
+          Matches the README and ARCHITECTURE.md footer pattern. */}
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 9,
+          letterSpacing: "0.2em",
+          color: "var(--text-mute)",
+          opacity: 0.7,
+        }}
+      >
+        A <strong style={{ color: "var(--text-dim)" }}>MoreSalamander StudioLabs</strong> production.
+      </div>
     </div>
   );
 }

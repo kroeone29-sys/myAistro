@@ -665,3 +665,7 @@ If you opened this repo cold, the path I'd suggest:
 10. Whatever else catches your eye.
 
 Done in that order, you'll have a complete picture of the system in about an hour.
+
+---
+
+*A **MoreSalamander StudioLabs** production.*
