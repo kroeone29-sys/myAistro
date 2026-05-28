@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { MarkdownBody } from "../lib/markdown";
 import { writeFetch } from "../lib/writeAuth";
+import { useIsMobile } from "../lib/useMediaQuery";
 
 export default function NotebookPanel({ dataVersion = 0, onSelectLesson, onTeachSection } = {}) {
   // ----- LIST STATE -----
@@ -51,6 +52,13 @@ export default function NotebookPanel({ dataVersion = 0, onSelectLesson, onTeach
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
+  // ----- MOBILE LAYOUT -----
+  // Two-pane layout (360px sidebar + flex detail) collapses badly on a
+  // ~400px phone screen — the sidebar eats almost all the width and the
+  // detail vanishes. Mobile gets a single-pane layout with a dropdown
+  // picker at the top that opens the list.
+  const isMobile = useIsMobile();
+
   // -------- LIST FETCH --------
   const refreshList = useCallback(async () => {
     setListError(null);
@@ -67,6 +75,18 @@ export default function NotebookPanel({ dataVersion = 0, onSelectLesson, onTeach
   useEffect(() => {
     refreshList();
   }, [refreshList, dataVersion]);
+
+  // Mobile: auto-select the most recent note once the list loads so the
+  // user lands on actual content, not a "pick something" empty state.
+  // The API already returns notes newest-first.
+  // Desktop keeps the explicit "select a note on the left" empty state —
+  // the sidebar is right there and obvious.
+  useEffect(() => {
+    if (!isMobile) return;
+    if (activeId) return;
+    if (!notes || notes.length === 0) return;
+    setActiveId(notes[0].notebook_id);
+  }, [isMobile, notes, activeId]);
 
   // -------- DETAIL FETCH --------
   useEffect(() => {
@@ -127,6 +147,84 @@ export default function NotebookPanel({ dataVersion = 0, onSelectLesson, onTeach
     );
   });
 
+  // ============================================================
+  //  MOBILE LAYOUT — single pane, list collapsed into a dropdown
+  // ============================================================
+  if (isMobile) {
+    return (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          zIndex: 5,
+        }}
+      >
+        {/* Picker bar — always-visible top strip. Shows current note's
+            title + a chevron; tapping opens the list. */}
+        <MobileNotePicker
+          notes={visible}
+          allNotes={notes}
+          activeId={activeId}
+          activeNote={active}
+          filter={filter}
+          onFilterChange={setFilter}
+          onPick={(id) => setActiveId(id)}
+          listError={listError}
+        />
+
+        {/* Detail pane — fills the rest of the screen. */}
+        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {!activeId && notes && notes.length === 0 && (
+            <NotebookEmpty />
+          )}
+          {!activeId && notes && notes.length > 0 && (
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-mute)",
+                fontSize: 13,
+                padding: 32,
+                textAlign: "center",
+              }}
+            >
+              Tap the picker above to choose a note.
+            </div>
+          )}
+          {activeId && activeLoading && (
+            <div style={{ padding: 24, color: "var(--text-dim)", fontSize: 13 }}>
+              Loading note…
+            </div>
+          )}
+          {activeId && activeError && (
+            <div style={{ padding: 24, color: "var(--danger)", fontSize: 13 }}>
+              {activeError}
+            </div>
+          )}
+          {activeId && active && (
+            <NoteDetail
+              note={active}
+              confirmDelete={confirmDelete}
+              onAskDelete={() => setConfirmDelete(true)}
+              onCancelDelete={() => setConfirmDelete(false)}
+              onConfirmDelete={onDelete}
+              deleteBusy={deleteBusy}
+              onSelectLesson={onSelectLesson}
+              onTeachSection={onTeachSection}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  //  DESKTOP LAYOUT — two-pane (sidebar list + detail)
+  // ============================================================
   return (
     <div
       style={{
@@ -366,6 +464,197 @@ function NoteListItem({ note, active, onClick }) {
 }
 
 // ============================================================
+//  MobileNotePicker — top-of-screen dropdown that collapses the
+//  whole left sidebar (list + filter + count) into one tap target.
+//  Same idiom as MobileViewPicker in App.jsx — chevron toggles a
+//  panel that hangs below the trigger.
+// ============================================================
+function MobileNotePicker({ notes, allNotes, activeId, activeNote, filter, onFilterChange, onPick, listError }) {
+  const [open, setOpen] = useState(false);
+  // The trigger label: current note's title if one's selected, else a
+  // generic "pick a note" placeholder. Falls back gracefully while the
+  // detail fetch is still in flight (activeId set but activeNote null).
+  const triggerLabel = activeNote?.title
+    || (allNotes ?? []).find((n) => n.notebook_id === activeId)?.title
+    || (allNotes && allNotes.length > 0 ? "Pick a saved note…" : "Notebook");
+
+  function pick(id) {
+    onPick(id);
+    setOpen(false);
+  }
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        borderBottom: "1px solid var(--border, rgba(255,255,255,0.06))",
+        background: "rgba(4,6,10,0.92)",
+        flexShrink: 0,
+      }}
+    >
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          padding: "12px 14px",
+          background: "transparent",
+          border: "none",
+          color: "var(--text)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          textAlign: "left",
+          minHeight: 48,
+        }}
+      >
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            flex: 1,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 9,
+              textTransform: "uppercase",
+              color: "var(--accent)",
+              letterSpacing: "0.18em",
+              flexShrink: 0,
+            }}
+          >
+            📓 Notebook
+          </span>
+          <span
+            style={{
+              fontWeight: 600,
+              color: "var(--text)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {triggerLabel}
+          </span>
+        </span>
+        <span
+          style={{
+            color: "var(--text-mute)",
+            fontSize: 11,
+            flexShrink: 0,
+          }}
+        >
+          {open ? "▲" : "▼"}
+        </span>
+      </button>
+
+      {open && (
+        <>
+          {/* Tap-outside catcher — separate transparent layer so taps
+              inside the popout don't bubble through. */}
+          <div
+            onClick={() => setOpen(false)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.4)",
+              zIndex: 40,
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: 0,
+              right: 0,
+              background: "var(--panel-strong)",
+              borderBottom: "1px solid var(--border-strong)",
+              boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+              zIndex: 41,
+              maxHeight: "70vh",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <div
+              style={{
+                padding: "12px 14px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Filter by title, query, or course…"
+                value={filter}
+                onChange={(e) => onFilterChange(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid var(--border-strong)",
+                  borderRadius: 6,
+                  color: "var(--text)",
+                  outline: "none",
+                  fontSize: 13,
+                  fontFamily: "var(--font-mono)",
+                  boxSizing: "border-box",
+                }}
+                autoFocus
+              />
+              {allNotes && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 10,
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--text-mute)",
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {notes.length} of {allNotes.length} note{allNotes.length === 1 ? "" : "s"}
+                </div>
+              )}
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+              {listError && (
+                <div style={{ padding: 14, color: "var(--danger)", fontSize: 13 }}>
+                  {listError}
+                </div>
+              )}
+              {!allNotes && !listError && (
+                <div style={{ padding: 14, color: "var(--text-dim)", fontSize: 13 }}>
+                  Loading…
+                </div>
+              )}
+              {allNotes && allNotes.length === 0 && (
+                <NotebookEmpty />
+              )}
+              {notes.map((n) => (
+                <NoteListItem
+                  key={n.notebook_id}
+                  note={n}
+                  active={n.notebook_id === activeId}
+                  onClick={() => pick(n.notebook_id)}
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 //  NotebookEmpty — empty-state CTA for the left pane
 // ============================================================
 function NotebookEmpty() {
@@ -402,12 +691,16 @@ function NotebookEmpty() {
 //  NoteDetail — full right-pane view of a saved note
 // ============================================================
 function NoteDetail({ note, confirmDelete, onAskDelete, onCancelDelete, onConfirmDelete, deleteBusy, onSelectLesson, onTeachSection }) {
+  const isMobile = useIsMobile();
   return (
     <div
       style={{
         flex: 1,
         overflowY: "auto",
-        padding: "24px 32px 40px",
+        // Tighter horizontal padding on mobile so the markdown body gets
+        // the full screen width instead of losing 64px to gutters that
+        // exist for the desktop two-pane layout's visual breathing room.
+        padding: isMobile ? "16px 14px 32px" : "24px 32px 40px",
       }}
     >
       {/* Header */}
