@@ -19,17 +19,25 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
-    // Allow Cloudflare quick-tunnel hostnames (and named tunnels) to load
-    // the dev server. Vite blocks unknown Host headers by default as a
-    // DNS-rebinding defense; harmless here since the tunnel itself is the
-    // only way in, but Vite doesn't know that.
-    allowedHosts: [
-      'localhost',
-      '127.0.0.1',
-      '.trycloudflare.com',   // Cloudflare quick tunnels
-      '.cfargotunnel.com',    // Cloudflare named tunnels
-      '.ts.net',              // Tailscale Funnel
-    ],
+    // Bind to all interfaces so devices on the same LAN (or tailnet)
+    // can reach the dev server — e.g. the user's phone hitting
+    // http://<mac-lan-ip>:5173 or http://<mac>.local:5173, or
+    // https://<mac>.<tailnet>.ts.net via Tailscale's private routing.
+    //
+    // This is intentional for a local-first personal tool that the
+    // owner wants on their own devices. If running on a hostile
+    // network (coffee shop wifi, hotel) you'd want to override with
+    // `vite --host 127.0.0.1` to limit access back to the loopback.
+    host: true,
+    // Allow any Host header in dev mode. Vite blocks unknown Hosts by
+    // default as a DNS-rebinding defense, which is overcautious for
+    // this setup — the dev server's threat model is "I'm the only one
+    // running it on my own LAN/tailnet" and the explicit allowlist
+    // (localhost, .ts.net, .trycloudflare.com, .cfargotunnel.com,
+    // every LAN IP, every .local mDNS name…) gets unmanageable fast.
+    // Production sharing goes through the Funnel which is its own
+    // explicit choice.
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
