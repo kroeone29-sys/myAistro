@@ -536,6 +536,125 @@ export default function AboutPanel() {
           </ul>
         </Section>
 
+        <Section title="Studying on your phone">
+          <p>
+            The whole app reflows for phones via a single{" "}
+            <code>useIsMobile()</code> hook (768px breakpoint). Mobile is
+            its own product context — <em>grab-and-glance, snacking
+            format</em> — not "the desktop UI, smaller." Reachable from
+            a phone on the same Tailscale tailnet without any LAN-IP
+            fiddling, and installable as a Progressive Web App so the
+            home-screen icon launches full-screen alongside your other
+            apps.
+          </p>
+          <p>The five mobile-only design decisions:</p>
+          <ul style={listStyle}>
+            <li>
+              <strong>Header collapses to a 56px compact bar.</strong>{" "}
+              Wordmark + a dropdown picker for the six views. "Graph"
+              renames to "Home" — on mobile that view is the dedicated
+              home screen, not the interactive graph.
+            </li>
+            <li>
+              <strong>Modals go full-bleed.</strong> Desktop's 60+40px
+              padding eats half a phone screen; mobile fills the screen
+              with no border, no rounded corners.
+            </li>
+            <li>
+              <strong>Master-detail surfaces collapse.</strong> The
+              Notebook (sidebar list + detail) and Classroom in-session
+              view (lesson-plan sidebar + beat) both flip from desktop
+              two-pane layouts to single-pane mobile layouts. The
+              sidebar becomes a top dropdown that summons the list on
+              tap and dismisses when a row is selected. Most recent
+              note auto-selects on mount so the user lands on content,
+              not "pick something."
+            </li>
+            <li>
+              <strong>Dedicated mobile home screen.</strong> The graph
+              renders in ambient mode (dimmed to 55%, no interaction,
+              slowed pulse) as the background. Overlaid action chips:{" "}
+              <strong>⚡ Quick Quiz</strong>,{" "}
+              <strong>🎓 Teach me something</strong>,{" "}
+              <strong>📓 Browse Notebook</strong>,{" "}
+              <strong>📚 Browse all lessons</strong>. Footer shows the
+              most-recently-ingested lesson + a streak counter. Built
+              for the "I just reached for my phone, suggest something"
+              moment.
+            </li>
+            <li>
+              <strong>The ✦ Pulse button.</strong> Top-right of the
+              graph area. A 3-second breathing animation (scale +
+              opacity + glow, GPU-accelerated CSS) runs continuously to
+              advertise interactivity. Tap fires one heartbeat wave
+              across the graph; button enters a 3-second "spent" state
+              while the wave plays so over-tapping doesn't queue
+              overlapping pulses. Auto-pulses still fire on a 120-second
+              cadence (vs the desktop's 3.7-second "tide") so the home
+              stays cool while still catching the occasional surprise
+              wave.
+            </li>
+          </ul>
+          <p>
+            Two surfaces are intentionally{" "}
+            <em>desktop-only</em>: Ingest (pasting a long lesson into a
+            phone textarea is a desktop activity) and the interactive
+            graph (force-graph + touch + small screen is a poor
+            experience). The mobile build is honest about being a
+            different product than the desktop, not a port of it.
+          </p>
+        </Section>
+
+        <Section title="The gradebook layer">
+          <p>
+            Every MC CHECK answered in Classroom and every Quiz
+            attempt appends to a single append-only event log at{" "}
+            <code>backend/gradebook.json</code>. A pure-Python
+            aggregation module (<code>core/grading.py</code>) reads
+            the log and produces per-lesson grades, mastery flags, and
+            Quiz extra-credit blending — all without an LLM in the
+            loop. The data layer is live; the visible Gradebook UI is
+            the next planned surface.
+          </p>
+          <p>The aggregation rules in one sentence each:</p>
+          <ul style={listStyle}>
+            <li>
+              <strong>Lesson base score = best session score.</strong>{" "}
+              Group CHECKs by session, compute first-try-correct ÷
+              total per session, take the max. Successful retake
+              rewards you; bad retake doesn't punish you.
+            </li>
+            <li>
+              <strong>Mastery</strong> = exists at least one session
+              where every first-try CHECK passed AND that session had
+              at least 2 CHECKs. Single-CHECK fluke can't grant
+              mastery.
+            </li>
+            <li>
+              <strong>Quiz extra credit</strong> = best Quiz score ×
+              20% / 100. Linear scale (50 gives half the max bonus,
+              not zero). Capped at +20%.
+            </li>
+            <li>
+              <strong>Final grade</strong> = min(100, lesson base +
+              quiz bonus). Bonus can lift a poor Classroom grade
+              meaningfully but never push past 100.
+            </li>
+          </ul>
+          <p>
+            Same persistence discipline as the SOT and notebook:
+            atomic temp+rename writes, threading lock, forgiving load
+            (missing or corrupt file → empty init shape). Writes are
+            wrapped in try/except at the controller so a gradebook
+            storage error never breaks a student's CHECK submit or
+            Quiz grade response — losing one record is acceptable;
+            surfacing a storage error mid-lesson is not. No tier names
+            (bronze / silver / gold) baked into the math — those are
+            UI-layer mappings the Gradebook tab will decide on when
+            it ships.
+          </p>
+        </Section>
+
         <Section title="Where the data lives">
           <p>
             my-AI-stro lives entirely on your machine. The SOT is{" "}
@@ -625,12 +744,23 @@ export default function AboutPanel() {
           <p>The natural next steps the architecture is preparing for:</p>
           <ul style={listStyle}>
             <li>
-              <strong>Spaced-repetition surfacing.</strong> The audit loop
-              already produces a deterministic richness score per version.
-              The Classroom session records already capture which CHECK
-              questions a student got wrong. Combine those signals and the
-              system can start scheduling specific lessons for re-study at
-              the right intervals.
+              <strong>The Gradebook UI.</strong> The data layer is live —
+              every Classroom CHECK and every Quiz attempt is being
+              recorded with first-try flags and lesson identity. The
+              missing piece is the visible surface: a transcript view
+              with per-course rollups, mastery chips on every lesson row
+              in the pickers, a home-screen widget showing overall
+              grade. Designed responsive-first so the mobile home gets
+              it from day one.
+            </li>
+            <li>
+              <strong>Spaced-repetition surfacing.</strong> Once the
+              Gradebook UI exists, the mobile home can surface "lessons
+              you haven't touched in 7+ days" or "concepts you've
+              struggled with (low first-try rate)" as additional action
+              chips. Pulls directly from the gradebook's{" "}
+              <code>last_attempt_at</code> + per-lesson aggregates that{" "}
+              <code>core/grading.py</code> already produces.
             </li>
             <li>
               <strong>Cross-lesson synthesis in Classroom.</strong> The
@@ -640,9 +770,28 @@ export default function AboutPanel() {
             </li>
             <li>
               <strong>Improv-mode Classroom.</strong> V2 of the Teacher
-              could generate beat content at runtime, handle raise-hand
-              questions, re-explain on demand. The plan already supports
-              this; only the runtime gap remains.
+              could generate beat content at runtime — re-explain on
+              demand (alt phrasing of the current beat), adaptive
+              remedial beats after a wrong CHECK. Raise-hand Q&A already
+              shipped; the rest of the runtime gap remains.
+            </li>
+            <li>
+              <strong>Pre-recorded ambient graph loop.</strong> The
+              current mobile ambient graph keeps d3 ticking continuously
+              to keep the pulse render loop alive — acceptable but not
+              ideal thermally. A pre-recorded WebM of one heartbeat
+              cycle, played as a looping <code>&lt;video&gt;</code> with
+              hardware decode, would drop home-screen CPU to near zero.
+              Trade-off is a stale snapshot of the SOT — the loop is
+              "your graph as of date X." Staged behind a real felt need
+              for additional cooling, not pre-emptively swapped.
+            </li>
+            <li>
+              <strong>Span citations.</strong> Advisor / Quiz Grader /
+              Teacher could return structured citations with each cited
+              span substring-verified against the raw lesson — making
+              the grounding rules explicit in the UI instead of merely
+              enforced at the data layer.
             </li>
           </ul>
           <p>
