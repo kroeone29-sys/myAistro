@@ -44,6 +44,7 @@
  *                   to the embedded GraphPanel for correct sizing)
  */
 
+import { useState, useCallback } from "react";
 import GraphPanel from "./GraphPanel";
 
 export default function MobileHomePanel({
@@ -54,6 +55,23 @@ export default function MobileHomePanel({
   onAllLessons,
   headerOffset = 56,
 }) {
+  // Counter we bump every time the user taps ✦ Pulse. GraphPanel
+  // watches the prop and fires one heartbeat wave on each change.
+  // Lives at this level so the button + the graph stay in sync
+  // without a ref handshake.
+  const [pulseSignal, setPulseSignal] = useState(0);
+  // Debounce the button — one tap = one pulse cycle (~3s). Hold the
+  // button in a "spent" state until the wave finishes so a frustrated
+  // tap-tap-tap doesn't queue five overlapping pulses.
+  const [pulseSpent, setPulseSpent] = useState(false);
+  const firePulse = useCallback(() => {
+    if (pulseSpent) return;
+    setPulseSignal((n) => n + 1);
+    setPulseSpent(true);
+    // ~3s ≈ one full heartbeat-wave duration (1.4s out + ~1.6s buffer).
+    // Long enough that re-arming feels intentional, not laggy.
+    setTimeout(() => setPulseSpent(false), 3000);
+  }, [pulseSpent]);
   return (
     <div
       style={{
@@ -73,8 +91,14 @@ export default function MobileHomePanel({
           opacity: 0.55,
         }}
       >
-        <GraphPanel ambient headerOffset={headerOffset} />
+        <GraphPanel ambient headerOffset={headerOffset} pulseSignal={pulseSignal} />
       </div>
+
+      {/* ✦ Pulse button — top-right of the graph area. Breathing
+          animation invites the tap; tapping fires one heartbeat
+          wave across the graph. After it fires, the button stays
+          "spent" for ~3s so you can't over-pulse. */}
+      <PulseButton onFire={firePulse} spent={pulseSpent} />
 
       {/* Subtle dark vignette so the chips/footer have contrast even
           where the graph happens to cluster bright nodes underneath. */}
@@ -250,6 +274,76 @@ function ActionChip({ icon, label, sublabel, onClick, tone = "green", prominent 
         →
       </span>
     </button>
+  );
+}
+
+// ============================================================
+//  PulseButton — the inviting little ✦ in the top-right that
+//  fires a heartbeat wave across the graph on tap.
+// ============================================================
+//
+// Why this exists: M4 shipped the home with a continuous 7.4s
+// heartbeat, which made the phone hot and (per the user) lost its
+// novelty fast. The cooling pass slowed auto-pulses to once every
+// 2 minutes and added this button for "I want one now." The
+// button itself is the new dopamine hit — tap, watch your
+// knowledge pulse, satisfaction. The breathing animation makes
+// the button look alive even when the graph behind it isn't,
+// which advertises "this is interactive" without a tooltip.
+function PulseButton({ onFire, spent }) {
+  return (
+    <>
+      {/* Keyframes for the breathing animation. Inline so the
+          component is self-contained — no global CSS dependency. */}
+      <style>{`
+        @keyframes pulse-button-breathe {
+          0%   { transform: scale(1.00); opacity: 0.72; box-shadow: 0 0 0 0 rgba(57,255,20,0.35), 0 0 14px rgba(57,255,20,0.25); }
+          50%  { transform: scale(1.06); opacity: 1.00; box-shadow: 0 0 0 8px rgba(57,255,20,0.00), 0 0 22px rgba(57,255,20,0.45); }
+          100% { transform: scale(1.00); opacity: 0.72; box-shadow: 0 0 0 0 rgba(57,255,20,0.35), 0 0 14px rgba(57,255,20,0.25); }
+        }
+        @keyframes pulse-button-fire {
+          0%   { transform: scale(1.15); box-shadow: 0 0 0 0 rgba(57,255,20,0.65), 0 0 32px rgba(57,255,20,0.7); }
+          100% { transform: scale(1.00); box-shadow: 0 0 0 24px rgba(57,255,20,0.00), 0 0 16px rgba(57,255,20,0.3); }
+        }
+      `}</style>
+      <button
+        onClick={onFire}
+        disabled={spent}
+        title={spent ? "Pulse traveling…" : "Tap to send a wave across your knowledge"}
+        style={{
+          position: "absolute",
+          top: 12,
+          right: 12,
+          width: 48,
+          height: 48,
+          borderRadius: "50%",
+          background: spent
+            ? "rgba(57,255,20,0.08)"
+            : "rgba(8,10,16,0.6)",
+          backdropFilter: "blur(8px)",
+          WebkitBackdropFilter: "blur(8px)",
+          border: "1px solid rgba(57,255,20,0.5)",
+          color: "var(--accent, #39ff14)",
+          fontSize: 20,
+          fontFamily: "var(--font-mono)",
+          cursor: spent ? "default" : "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 8,
+          opacity: spent ? 0.5 : 1,
+          // Breathing when idle; "fire" decay when spent so the tap
+          // produces a visible flash before settling into the dimmed
+          // 3-second cooldown.
+          animation: spent
+            ? "pulse-button-fire 0.6s ease-out"
+            : "pulse-button-breathe 3s ease-in-out infinite",
+          transition: "opacity 0.2s",
+        }}
+      >
+        ✦
+      </button>
+    </>
   );
 }
 

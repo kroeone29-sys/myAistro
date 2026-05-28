@@ -104,14 +104,20 @@ export default function GraphPanel({
   dataVersion = 0,
   // Ambient mode: the graph renders the heartbeat + forces + nodes,
   // but doesn't respond to taps/clicks/hover, hides the legend +
-  // settings panel, and slows the heartbeat to be less visually
-  // noisy. Used by MobileHomePanel as a living background behind
+  // settings panel, settles the d3 simulation after warmup (saves
+  // phone battery — desktop runs it forever), and pulses MUCH less
+  // often. Used by MobileHomePanel as a living background behind
   // its action chips — the graph is atmosphere, not navigation.
   ambient = false,
   // Pixel height of whatever header sits above this graph in the
   // current viewport. Defaults to the desktop header (160px); the
   // mobile home passes 56 to match the compact mobile header.
   headerOffset = HEADER_OFFSET,
+  // Counter that, when incremented, fires one heartbeat pulse on
+  // demand. Lets the MobileHomePanel's ✦ button trigger a wave
+  // without re-mounting or re-rendering the whole graph. Each
+  // bump = one pulse. Initial value of 0 is ignored.
+  pulseSignal = 0,
 }) {
   const [graph, setGraph] = useState(null);
   const [error, setError] = useState(null);
@@ -385,36 +391,53 @@ export default function GraphPanel({
   // giving a continuous "tide" feel rather than discrete heartbeats.
   // Placed after graphData definition so the closure can read the latest
   // node list without hitting the TDZ.
+  // The heartbeat fire function — emits one wave of hub→SOT pulses.
+  // Lives in a ref so both the auto-pulse interval AND external
+  // triggers (the mobile ✦ Pulse button via pulseSignal) can call it
+  // without the closure capturing stale graphData.
+  const fireRef = useRef(null);
+  fireRef.current = () => {
+    const nodes = graphData.nodes;
+    const hub = nodes.find((n) => n.isHub);
+    if (!hub) return;
+    const now = performance.now();
+    for (const n of nodes) {
+      if (n.isHub) continue;
+      pulsesRef.current.push({
+        source: hub,
+        target: n,
+        startTime: now,
+        duration: 1400,
+        depth: 0,
+        // hub → SOT spokes are white the whole way
+        headStartColor: "#ffffff",
+        headEndColor: "#ffffff",
+      });
+    }
+  };
+
+  // Auto-pulse interval. Desktop runs at the original 3.7s "tide" so
+  // the interactive graph feels alive. Ambient (mobile home) drops to
+  // a 2-minute cadence so the phone stays cool — the visible pulses
+  // become an occasional surprise, not a constant draw on the GPU.
+  // The pulse button covers "I want one now" for the in-between.
   useEffect(() => {
     if (!graph?.nodes?.length) return;
-    // Ambient mode slows the heartbeat to ~2x — same pulses, less
-    // visually noisy as a background. Desktop / interactive use keeps
-    // the original 3700ms cadence so the graph feels "alive" rather
-    // than sleepy.
-    const HEARTBEAT_MS = ambient ? 7400 : 3700;
-    const fire = () => {
-      const nodes = graphData.nodes;
-      const hub = nodes.find((n) => n.isHub);
-      if (!hub) return;
-      const now = performance.now();
-      for (const n of nodes) {
-        if (n.isHub) continue;
-        pulsesRef.current.push({
-          source: hub,
-          target: n,
-          startTime: now,
-          duration: 1400,
-          depth: 0,
-          // hub → SOT spokes are white the whole way
-          headStartColor: "#ffffff",
-          headEndColor: "#ffffff",
-        });
-      }
-    };
-    fire();
-    const t = setInterval(fire, HEARTBEAT_MS);
+    const HEARTBEAT_MS = ambient ? 120000 : 3700;
+    fireRef.current?.();   // initial wave so first impression is alive
+    const t = setInterval(() => fireRef.current?.(), HEARTBEAT_MS);
     return () => clearInterval(t);
-  }, [graph, graphData, courseColor, ambient]);
+  }, [graph, ambient]);
+
+  // External pulse trigger. The MobileHomePanel's ✦ button bumps a
+  // pulseSignal counter on each tap; this effect fires one wave when
+  // the counter changes. Initial value of 0 is the initialization
+  // skip (the auto-pulse useEffect already handles the first wave).
+  useEffect(() => {
+    if (pulseSignal > 0 && graph?.nodes?.length) {
+      fireRef.current?.();
+    }
+  }, [pulseSignal, graph]);
 
   // Baseline alpha — keep the d3 simulation always-ticking so display
   // toggles (course hulls, starfield, animated edges) and force changes
@@ -1169,8 +1192,18 @@ export default function GraphPanel({
           linkCanvasObject={drawLink}
           linkCanvasObjectMode={() => "replace"}
           linkLabel={(l) => `shared: ${(l.shared ?? []).join(", ")}`}
-          cooldownTicks={Infinity}
-          cooldownTime={Infinity}
+          // Desktop: never cool down — the force simulation runs forever
+          // so display toggles, force tunings, and the heartbeat tide all
+          // stay responsive.
+          // Ambient (mobile home): cool down after warmup. After ~300
+          // ticks (≈5s) the layout settles into a nice shape and stops
+          // recomputing forces every frame — the single biggest battery
+          // win on phones. The graph stays drawn (pulses still animate
+          // on top via our render hooks), it just stops re-solving its
+          // own positions. cooldownTime is a 15s safety net in case the
+          // tick count is configured higher elsewhere.
+          cooldownTicks={ambient ? 300 : Infinity}
+          cooldownTime={ambient ? 15000 : Infinity}
           d3VelocityDecay={settings.forces.velocityDecay}
           d3AlphaDecay={0.05}
           warmupTicks={80}
