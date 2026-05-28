@@ -36,12 +36,14 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useIsMobile } from "../../lib/useMediaQuery";
 
 export default function NotebookSectionPicker({
   onTeachSection,
   onResumePlan,
   onBrowseAll,
 }) {
+  const isMobile = useIsMobile();
   const [notes, setNotes] = useState(null);
   const [error, setError] = useState(null);
   // Collapsed state per notebook_id. Default: first note expanded,
@@ -81,14 +83,16 @@ export default function NotebookSectionPicker({
   }
 
   return (
-    <div style={containerStyle}>
-      <div style={headerStyle}>
+    <div style={isMobile ? mobileContainerStyle : containerStyle}>
+      <div style={isMobile ? mobileHeaderStyle : headerStyle}>
         <div style={kickerStyle}>Classroom · your study queue</div>
-        <h1 style={titleStyle}>What would you like to learn?</h1>
-        <div style={subtitleStyle}>
-          Sections you've saved to your Notebook. Each one becomes a
-          beat-by-beat teaching session.
-        </div>
+        <h1 style={isMobile ? mobileTitleStyle : titleStyle}>What would you like to learn?</h1>
+        {!isMobile && (
+          <div style={subtitleStyle}>
+            Sections you've saved to your Notebook. Each one becomes a
+            beat-by-beat teaching session.
+          </div>
+        )}
       </div>
 
       {notes.length === 0 && (
@@ -261,9 +265,32 @@ const containerStyle = {
   zIndex: 5,
 };
 
+// Mobile shrinks the side padding to 12px and the bottom safety
+// margin too, so 400px-wide phone screens get the full width for
+// section rows instead of losing 64px to gutters.
+const mobileContainerStyle = {
+  position: "absolute",
+  inset: 0,
+  overflowY: "auto",
+  padding: "16px 12px 60px",
+  zIndex: 5,
+};
+
 const headerStyle = {
   maxWidth: 880,
   margin: "0 auto 24px",
+};
+
+const mobileHeaderStyle = {
+  margin: "0 0 16px",
+};
+
+const mobileTitleStyle = {
+  margin: "8px 0 0",
+  fontSize: 20,        // smaller than desktop's 28 — fits phone width
+  fontWeight: 700,
+  color: "var(--text)",
+  lineHeight: 1.25,
 };
 
 const kickerStyle = {
@@ -349,8 +376,8 @@ const sectionListStyle = {
 const sectionRowStyle = {
   display: "flex",
   alignItems: "center",
-  gap: 16,
-  padding: "12px 18px",
+  gap: 12,
+  padding: "12px 14px",
   background: "transparent",
   border: "none",
   borderTop: "1px solid rgba(255,255,255,0.04)",
@@ -359,6 +386,7 @@ const sectionRowStyle = {
   textAlign: "left",
   fontFamily: "inherit",
   transition: "background 0.12s",
+  minHeight: 56,  // iOS-friendly tap target floor for the whole row
 };
 
 const sectionRowMainStyle = {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { writeFetch } from "../../lib/writeAuth";
+import { useIsMobile } from "../../lib/useMediaQuery";
 import { BEAT_TYPES } from "./classroomTypes";
 import LessonPicker from "./LessonPicker";
 import NotebookSectionPicker from "./NotebookSectionPicker";
@@ -761,41 +762,63 @@ function PlayingView({
 }) {
   const currentBeat = plan.beats[session.current_beat];
   const result = currentBeat ? checkResultByBeat.get(currentBeat.beat_id) : null;
+  // Layout fork: desktop = row (sidebar | beat), mobile = column
+  // (strip / beat). The LessonPlanSidebar handles its own desktop-vs-
+  // mobile rendering internally; only the flex direction and the
+  // End Session placement differ between the two layouts here.
+  const isMobile = useIsMobile();
   return (
-    <div style={{ display: "flex", height: "100%" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: isMobile ? "column" : "row",
+        height: "100%",
+      }}
+    >
       <LessonPlanSidebar
         plan={plan}
         currentBeat={session.current_beat}
         checkResults={checkResultByBeat}
+        // On mobile, the End Session button lives in the strip itself.
+        // On desktop, the strip never renders so this prop is ignored.
+        onExit={isMobile ? onExit : null}
       />
       <div
         style={{
           flex: 1,
-          padding: "28px 24px 60px",
+          // Tighter padding on mobile so the BeatRenderer body uses
+          // the screen width. The desktop padding (28px / 24px / 60px)
+          // was tuned for a much wider viewport with a sidebar already
+          // taking 280px on the left.
+          padding: isMobile ? "16px 14px 40px" : "28px 24px 60px",
           overflowY: "auto",
           position: "relative",
         }}
       >
-        <button
-          onClick={onExit}
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            background: "transparent",
-            border: "1px solid var(--border)",
-            color: "var(--text-dim)",
-            padding: "4px 10px",
-            borderRadius: 5,
-            fontSize: 10,
-            fontFamily: "var(--font-mono)",
-            letterSpacing: "0.12em",
-            textTransform: "uppercase",
-            cursor: "pointer",
-          }}
-        >
-          End session
-        </button>
+        {/* Desktop-only End Session button — on mobile the X in the
+            top strip plays this role. Avoids two competing exits. */}
+        {!isMobile && (
+          <button
+            onClick={onExit}
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              background: "transparent",
+              border: "1px solid var(--border)",
+              color: "var(--text-dim)",
+              padding: "4px 10px",
+              borderRadius: 5,
+              fontSize: 10,
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+            }}
+          >
+            End session
+          </button>
+        )}
         {qa?.active ? (
           <RaiseHandOverlay
             qa={qa}
