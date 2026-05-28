@@ -74,6 +74,10 @@ export default function App() {
   const [selected, setSelected] = useState(null); // graph node or list entry
   const [modal, setModal] = useState(null); // null | "ingest" | "quiz" | "advisor" | "general"
   const [modalLesson, setModalLesson] = useState(null);
+  // Quick Quiz flag — when true, the quiz modal opens in random-lesson
+  // mode (skips the picker, calls /api/quiz/random, drops into
+  // answering). Reset on modal close.
+  const [quickQuizMode, setQuickQuizMode] = useState(false);
   const [stats, setStats] = useState(null);
   // Bumped each time a lesson is successfully ingested. Live views (graph,
   // list) read this and re-fetch when it changes.
@@ -167,13 +171,15 @@ export default function App() {
 
   const closeLesson = useCallback(() => setSelected(null), []);
 
-  const openModal = useCallback((kind, lesson = null) => {
+  const openModal = useCallback((kind, lesson = null, opts = {}) => {
     setModal(kind);
     setModalLesson(lesson);
+    setQuickQuizMode(!!opts.quickQuiz);
   }, []);
   const closeModal = useCallback(() => {
     setModal(null);
     setModalLesson(null);
+    setQuickQuizMode(false);
     refreshStats(); // ingest may have added a lesson
   }, [refreshStats]);
 
@@ -225,7 +231,7 @@ export default function App() {
           // serves better as atmosphere than as a navigation surface.
           <MobileHomePanel
             stats={stats}
-            onQuickQuiz={() => openModal("quiz")}
+            onQuickQuiz={() => openModal("quiz", null, { quickQuiz: true })}
             onClassroom={
               CLASSROOM_ENABLED ? () => setView("classroom") : undefined
             }
@@ -294,8 +300,22 @@ export default function App() {
         </Modal>
       )}
       {modal === "quiz" && (
-        <Modal onClose={closeModal} title={modalLesson ? `Quiz: ${modalLesson.lesson}` : "Quiz"} isMobile={isMobile}>
-          <QuizPanel embedded presetEventId={modalLesson?.id ?? modalLesson?.event_id} />
+        <Modal
+          onClose={closeModal}
+          title={
+            quickQuizMode
+              ? "⚡ Quick Quiz"
+              : modalLesson
+              ? `Quiz: ${modalLesson.lesson}`
+              : "Quiz"
+          }
+          isMobile={isMobile}
+        >
+          <QuizPanel
+            embedded
+            presetEventId={modalLesson?.id ?? modalLesson?.event_id}
+            quickQuiz={quickQuizMode}
+          />
         </Modal>
       )}
       {modal === "advisor" && (

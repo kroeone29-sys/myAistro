@@ -20,15 +20,23 @@
  * @param {string} [props.presetEventId]  If set, jumps straight to that
  *                                        lesson and auto-generates the
  *                                        first question on mount.
+ * @param {boolean}[props.quickQuiz]      If set, picks a RANDOM canonical
+ *                                        lesson via /api/quiz/random and
+ *                                        drops directly into answering
+ *                                        state. Powers the mobile home
+ *                                        "Quick Quiz" snacking flow —
+ *                                        one tap, one question, no
+ *                                        picker friction.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 
-export default function QuizPanel({ presetEventId } = {}) {
+export default function QuizPanel({ presetEventId, quickQuiz = false } = {}) {
   const [entries, setEntries] = useState(null);
   const [error, setError] = useState(null);
   const [active, setActive] = useState(null);
   const presetFiredRef = useRef(false);
+  const quickQuizFiredRef = useRef(false);
   // active shape: { entry, question, userAnswer, grade, phase }
   // phase: "loading_q" | "answering" | "grading" | "graded"
 
@@ -87,6 +95,71 @@ export default function QuizPanel({ presetEventId } = {}) {
       startQuiz(target);
     }
   }, [presetEventId, entries, startQuiz]);
+
+  // Quick Quiz: pick a random lesson on the backend and drop straight
+  // into answering. One LLM round trip (the /random endpoint picks +
+  // generates in one shot) — no picker, no second fetch. Only fires
+  // once per mount.
+  const startQuickQuiz = useCallback(async () => {
+    setError(null);
+    // Skip the picker entirely — show the loading state immediately.
+    // We don't have an entry yet so use a placeholder; the real entry
+    // fields land when /random returns.
+    setActive({
+      entry: null,
+      question: null,
+      userAnswer: "",
+      grade: null,
+      phase: "loading_q",
+    });
+    try {
+      const res = await fetch("/api/quiz/random", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(body.slice(0, 200) || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (!data.question || !data.event_id) {
+        throw new Error("Quick Quiz returned no question.");
+      }
+      setActive({
+        entry: {
+          event_id: data.event_id,
+          course: data.course,
+          week: data.week,
+          lesson: data.lesson,
+        },
+        question: data.question,
+        questionModel: data.model,
+        userAnswer: "",
+        grade: null,
+        phase: "answering",
+      });
+    } catch (e) {
+      setActive({
+        entry: null,
+        question: null,
+        userAnswer: "",
+        grade: null,
+        phase: "error",
+        errorMessage: e.message ?? String(e),
+      });
+    }
+  }, []);
+
+  // Auto-fire Quick Quiz on mount when the prop is set. The list of
+  // entries is NOT a dependency here — Quick Quiz picks its own random
+  // lesson on the backend, so we don't need to wait for /api/sot to
+  // resolve before starting.
+  useEffect(() => {
+    if (!quickQuiz || quickQuizFiredRef.current) return;
+    quickQuizFiredRef.current = true;
+    startQuickQuiz();
+  }, [quickQuiz, startQuickQuiz]);
 
   async function submitAnswer() {
     if (!active || !active.userAnswer.trim()) return;
@@ -158,10 +231,22 @@ export default function QuizPanel({ presetEventId } = {}) {
   // ---------- render: quiz in progress ----------
   return (
     <Container>
-      <LessonHeader entry={active.entry} onChange={pickDifferentLesson} />
+      <LessonHeader
+        entry={active.entry}
+        onChange={pickDifferentLesson}
+        // Quick Quiz didn't come from a picker, so "Change lesson"
+        // has nowhere clean to go. Hide the button and let the user
+        // exit via the modal X or hit "Quick Quiz again" after grading.
+        hideChangeButton={quickQuiz}
+        kicker={quickQuiz ? "Quick Quiz · random pick" : undefined}
+      />
 
       {active.phase === "loading_q" && (
-        <Muted>Generating question with {modelLabel("llama3.2")}…</Muted>
+        <Muted>
+          {quickQuiz && !active.entry
+            ? <>Picking a random lesson and writing a question…</>
+            : <>Generating question with {modelLabel("llama3.2")}…</>}
+        </Muted>
       )}
 
       {active.phase === "error" && (
@@ -223,7 +308,8 @@ export default function QuizPanel({ presetEventId } = {}) {
             <GradeCard
               grade={active.grade}
               onRetry={tryAnotherQuestion}
-              onSwitch={pickDifferentLesson}
+              onSwitch={quickQuiz ? startQuickQuiz : pickDifferentLesson}
+              switchLabel={quickQuiz ? "Quick Quiz again" : "Pick different lesson"}
             />
           )}
         </>
@@ -262,7 +348,10 @@ function PickerRow({ entry, onClick }) {
   );
 }
 
-function LessonHeader({ entry, onChange }) {
+function LessonHeader({ entry, onChange, hideChangeButton = false, kicker }) {
+  // Entry can be null momentarily during Quick Quiz loading_q phase
+  // (we set active.phase before /random returns). Render a minimal
+  // header in that case so the spinner has something to sit under.
   return (
     <div
       style={{
@@ -282,20 +371,26 @@ function LessonHeader({ entry, onChange }) {
             color: "rgba(255,255,255,0.5)",
           }}
         >
-          Quizzing on · {entry.course} · week {entry.week}
+          {kicker
+            ? kicker
+            : entry
+            ? `Quizzing on · ${entry.course} · week ${entry.week}`
+            : "Quiz"}
         </div>
         <div style={{ fontSize: 18, fontWeight: 600, marginTop: 2 }}>
-          {entry.lesson}
+          {entry?.lesson ?? "—"}
         </div>
       </div>
-      <button onClick={onChange} style={ghostBtnStyle}>
-        Change lesson
-      </button>
+      {!hideChangeButton && (
+        <button onClick={onChange} style={ghostBtnStyle}>
+          Change lesson
+        </button>
+      )}
     </div>
   );
 }
 
-function GradeCard({ grade, onRetry, onSwitch }) {
+function GradeCard({ grade, onRetry, onSwitch, switchLabel = "Pick different lesson" }) {
   const color =
     grade.score >= 80 ? "#22c55e" : grade.score >= 50 ? "#f59e0b" : "#ef4444";
   return (
@@ -344,7 +439,7 @@ function GradeCard({ grade, onRetry, onSwitch }) {
           Another question on this lesson
         </button>
         <button onClick={onSwitch} style={ghostBtnStyle}>
-          Pick different lesson
+          {switchLabel}
         </button>
       </div>
     </div>
