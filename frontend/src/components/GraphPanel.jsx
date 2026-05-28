@@ -104,10 +104,11 @@ export default function GraphPanel({
   dataVersion = 0,
   // Ambient mode: the graph renders the heartbeat + forces + nodes,
   // but doesn't respond to taps/clicks/hover, hides the legend +
-  // settings panel, settles the d3 simulation after warmup (saves
-  // phone battery — desktop runs it forever), and pulses MUCH less
-  // often. Used by MobileHomePanel as a living background behind
-  // its action chips — the graph is atmosphere, not navigation.
+  // settings panel, and pulses MUCH less often (every 120s instead
+  // of every 3.7s). Used by MobileHomePanel as a living background
+  // behind its action chips — the graph is atmosphere, not
+  // navigation. The pulse button gives the user manual control for
+  // "I want one now" between the slow auto-cycles.
   ambient = false,
   // Pixel height of whatever header sits above this graph in the
   // current viewport. Defaults to the desktop header (160px); the
@@ -1192,18 +1193,19 @@ export default function GraphPanel({
           linkCanvasObject={drawLink}
           linkCanvasObjectMode={() => "replace"}
           linkLabel={(l) => `shared: ${(l.shared ?? []).join(", ")}`}
-          // Desktop: never cool down — the force simulation runs forever
-          // so display toggles, force tunings, and the heartbeat tide all
-          // stay responsive.
-          // Ambient (mobile home): cool down after warmup. After ~300
-          // ticks (≈5s) the layout settles into a nice shape and stops
-          // recomputing forces every frame — the single biggest battery
-          // win on phones. The graph stays drawn (pulses still animate
-          // on top via our render hooks), it just stops re-solving its
-          // own positions. cooldownTime is a 15s safety net in case the
-          // tick count is configured higher elsewhere.
-          cooldownTicks={ambient ? 300 : Infinity}
-          cooldownTime={ambient ? 15000 : Infinity}
+          // Never cool down. The render loop is tied to d3 ticks in
+          // react-force-graph — when alpha decays to zero the library
+          // stops calling its render callbacks, which means the pulse
+          // animations queue but never draw. An earlier "settle d3 in
+          // ambient mode" optimization made the mobile pulse visibly
+          // laggy for exactly this reason.
+          //
+          // Mobile heat is acceptable without d3 settling because the
+          // slow ambient heartbeat (120s vs the original 7.4s) already
+          // cut the per-minute pulse work ~16x, which is where most of
+          // the actual GPU cost lived.
+          cooldownTicks={Infinity}
+          cooldownTime={Infinity}
           d3VelocityDecay={settings.forces.velocityDecay}
           d3AlphaDecay={0.05}
           warmupTicks={80}
